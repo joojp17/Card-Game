@@ -98,7 +98,11 @@ export function SubmissionStack({
           ))
         ) : (
           <div className="flex min-h-28 items-center justify-center rounded bg-ink p-3">
-            <img alt="" aria-hidden="true" className="h-14 w-14 object-contain" src="/logo.png" />
+            <div
+              aria-hidden="true"
+              className="h-14 w-14 bg-contain bg-center bg-no-repeat"
+              style={{ backgroundImage: "url('/logo.png')" }}
+            />
           </div>
         )}
       </div>
