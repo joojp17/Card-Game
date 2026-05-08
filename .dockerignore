@@ -1,0 +1,14 @@
+node_modules
+dist
+.git
+.env
+.env.local
+apps/*/node_modules
+apps/*/dist
+packages/*/node_modules
+packages/*/dist
+coverage
+*.log
+*.tsbuildinfo
+**/*.tsbuildinfo
+release.tgz

@@ -12,7 +12,6 @@ concurrency:
 
 env:
   NODE_VERSION: "22"
-  SERVICE_NAME: ${{ secrets.VPS_SERVICE_NAME || 'cards-against-jewels' }}
   HEALTH_URL: ${{ secrets.HEALTH_URL }}
 
 jobs:
@@ -65,55 +64,16 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -p "$VPS_PORT" "$VPS_HOST" >> ~/.ssh/known_hosts
 
-      - name: Package release
-        run: |
-          set -euo pipefail
-          tar \
-            --exclude='.git' \
-            --exclude='node_modules' \
-            --exclude='dist' \
-            --exclude='.env' \
-            --exclude='.env.local' \
-            -czf release.tgz .
-
-      - name: Upload release
+      - name: Deploy with Docker Compose
         env:
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_USER: ${{ secrets.VPS_USER }}
-          VPS_PATH: ${{ secrets.VPS_PATH }}
+          VPS_PATH: ${{ secrets.VPS_PATH || '/opt/cards-against-jewels' }}
           VPS_PORT: ${{ secrets.VPS_PORT || '22' }}
-        run: |
-          set -euo pipefail
-          ssh -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" "mkdir -p '$VPS_PATH/uploads'"
-          scp -P "$VPS_PORT" release.tgz "$VPS_USER@$VPS_HOST:$VPS_PATH/uploads/${GITHUB_SHA}.tgz"
-
-      - name: Upload environment files
-        env:
-          VPS_HOST: ${{ secrets.VPS_HOST }}
-          VPS_USER: ${{ secrets.VPS_USER }}
-          VPS_PATH: ${{ secrets.VPS_PATH }}
-          VPS_PORT: ${{ secrets.VPS_PORT || '22' }}
-          SERVER_ENV: ${{ secrets.SERVER_ENV }}
-          WEB_ENV: ${{ secrets.WEB_ENV }}
-        run: |
-          set -euo pipefail
-          mkdir -p env-upload
-          printf '%s\n' "$SERVER_ENV" > env-upload/server.env
-          printf '%s\n' "$WEB_ENV" > env-upload/web.env
-          ssh -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" "mkdir -p '$VPS_PATH/shared/env'"
-          scp -P "$VPS_PORT" env-upload/server.env "$VPS_USER@$VPS_HOST:$VPS_PATH/shared/env/server.env"
-          scp -P "$VPS_PORT" env-upload/web.env "$VPS_USER@$VPS_HOST:$VPS_PATH/shared/env/web.env"
-
-      - name: Deploy release with rollback
-        env:
-          VPS_HOST: ${{ secrets.VPS_HOST }}
-          VPS_USER: ${{ secrets.VPS_USER }}
-          VPS_PATH: ${{ secrets.VPS_PATH }}
-          VPS_PORT: ${{ secrets.VPS_PORT || '22' }}
-          SERVICE_NAME: ${{ env.SERVICE_NAME }}
+          REPO_URL: ${{ secrets.REPO_URL }}
           HEALTH_URL: ${{ env.HEALTH_URL }}
         run: |
           set -euo pipefail
           ssh -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" \
-            "APP_DIR='$VPS_PATH' RELEASE_SHA='$GITHUB_SHA' SERVICE_NAME='$SERVICE_NAME' HEALTH_URL='$HEALTH_URL' bash -s" \
-            < scripts/deploy/remote-deploy.sh
+            "APP_DIR='$VPS_PATH' REPO_URL='$REPO_URL' RELEASE_REF='$GITHUB_SHA' HEALTH_URL='$HEALTH_URL' bash -s" \
+            < scripts/deploy/remote-compose-deploy.sh

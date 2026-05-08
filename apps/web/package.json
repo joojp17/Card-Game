@@ -10,7 +10,7 @@
     "typecheck": "tsc -b --noEmit"
   },
   "dependencies": {
-    "@cards-against-jewels/shared": "file:../../packages/shared",
+    "@cards-against-jewels/shared": "0.1.0",
     "@discord/embedded-app-sdk": "^2.5.0",
     "@vitejs/plugin-react": "^4.7.0",
     "class-variance-authority": "^0.7.1",

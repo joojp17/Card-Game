@@ -21,7 +21,7 @@
     "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
-    "@cards-against-jewels/shared": "file:../../packages/shared",
+    "@cards-against-jewels/shared": "0.1.0",
     "@fastify/cors": "^10.1.0",
     "@prisma/client": "^6.19.3",
     "dotenv": "^16.6.1",
