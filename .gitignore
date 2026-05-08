@@ -7,3 +7,4 @@ coverage
 *.tsbuildinfo
 *.log
 release.tgz
+seed-data
