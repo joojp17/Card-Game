@@ -267,7 +267,7 @@ function RoundTimer({ deadlineAt, phase }: { deadlineAt: number | null; phase: s
   const lastTickRef = useRef<number | null>(null);
   const secondsLeft = deadlineAt ? Math.max(0, Math.ceil((deadlineAt - now) / 1000)) : null;
   const isActive = phase === "submitting" || phase === "judging" || phase === "round_result";
-  const label = phase === "round_result" ? "Próxima rodada em" : "Tempo";
+  const label = phase === "round_result" ? "" : "Tempo: ";
 
   useEffect(() => {
     if (!deadlineAt || !isActive) {
@@ -305,7 +305,8 @@ function RoundTimer({ deadlineAt, phase }: { deadlineAt: number | null; phase: s
       )}
     >
       <Clock size={16} />
-      {label}: {secondsLeft}s
+      {label}
+      {secondsLeft}s
     </div>
   );
 }
@@ -320,9 +321,10 @@ function GameRoom() {
   const me = room?.me;
   const judge = room?.players.find((player) => player.isJudge);
   const submitted = room?.players.find((player) => player.id === me?.playerId)?.hasSubmitted ?? false;
-  const canStart = room?.phase === "lobby" && Boolean(me?.isHost) && room.players.length >= room.settings.minPlayers;
-  const canSubmit = room?.phase === "submitting" && !me?.isJudge && !submitted;
-  const canJudge = room?.phase === "judging" && Boolean(me?.isJudge);
+  const activePlayerCount = room?.players.filter((player) => !player.isWaiting && player.connected).length ?? 0;
+  const canStart = room?.phase === "lobby" && Boolean(me?.isHost) && activePlayerCount >= room.settings.minPlayers;
+  const canSubmit = room?.phase === "submitting" && !me?.isJudge && !me?.isWaiting && !submitted;
+  const canJudge = room?.phase === "judging" && Boolean(me?.isJudge) && !me?.isWaiting;
 
   useEffect(() => {
     setSelectedCardIds([]);
@@ -359,6 +361,8 @@ function GameRoom() {
   }
 
   const sortedPlayers = [...room.players].sort((left, right) => right.score - left.score || left.name.localeCompare(right.name));
+  const activePlayers = sortedPlayers.filter((player) => !player.isWaiting);
+  const waitingPlayers = sortedPlayers.filter((player) => player.isWaiting);
   const showSubmissions = Boolean(room.round && room.round.submissions.length > 0);
   const requiredCards = room.round?.blackCard.pick ?? 1;
 
@@ -384,13 +388,14 @@ function GameRoom() {
             </span>
           </div>
           <div className="space-y-2">
-            {sortedPlayers.map((player) => (
+            {activePlayers.map((player) => (
               <PlayerRow
                 canKick={me.isHost && player.id !== me.playerId}
                 connected={player.connected}
                 hasSubmitted={player.hasSubmitted}
                 isHost={player.isHost}
                 isJudge={player.isJudge}
+                isWaiting={player.isWaiting}
                 key={player.id}
                 name={player.name}
                 onKick={() => kickPlayer(player.id)}
@@ -398,6 +403,27 @@ function GameRoom() {
               />
             ))}
           </div>
+          {waitingPlayers.length > 0 && (
+            <div className="mt-4 border-t border-ink/10 pt-3">
+              <h3 className="mb-2 text-xs font-black uppercase tracking-normal text-ink/45">Fila de espera</h3>
+              <div className="space-y-2">
+                {waitingPlayers.map((player) => (
+                  <PlayerRow
+                    canKick={me.isHost && player.id !== me.playerId}
+                    connected={player.connected}
+                    hasSubmitted={false}
+                    isHost={player.isHost}
+                    isJudge={false}
+                    isWaiting={player.isWaiting}
+                    key={player.id}
+                    name={player.name}
+                    onKick={() => kickPlayer(player.id)}
+                    score={player.score}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="rounded-md border border-ink/10 bg-white p-4 shadow-card">
@@ -447,6 +473,15 @@ function GameRoom() {
           </div>
         )}
 
+        {me.isWaiting && room.phase !== "lobby" && room.phase !== "game_over" && (
+          <Panel className="border-emerald/30 bg-emerald/10">
+            <h2 className="text-xl font-black">Você está na fila de espera</h2>
+            <p className="mt-1 text-sm font-semibold text-ink/65">
+              Você entrou com a rodada em andamento e participa automaticamente na próxima rodada.
+            </p>
+          </Panel>
+        )}
+
         {showSubmissions && room.round && (
           <Panel>
             <h2 className="mb-4 text-xl font-black">
@@ -473,7 +508,7 @@ function GameRoom() {
           </Panel>
         )}
 
-        {room.phase === "submitting" && (
+        {room.phase === "submitting" && !me.isWaiting && (
           <Panel>
             <div className="mb-4 flex items-center justify-between gap-3">
               <h2 className="text-xl font-black">Sua mão</h2>
@@ -599,7 +634,7 @@ function RoundStatus({
     if (phase === "submitting") return "Escolha uma carta da sua mão.";
     if (phase === "judging" && isJudge) return "Escolha a resposta que merece a joia da vergonha.";
     if (phase === "judging") return `${judgeName} está julgando as respostas.`;
-    if (phase === "round_result") return "A próxima rodada começará em 5 segundos.";
+    if (phase === "round_result") return "Resultado da rodada.";
     return "A partida terminou.";
   }, [isJudge, judgeName, phase, submitted]);
 

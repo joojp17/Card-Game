@@ -15,7 +15,7 @@ export function JewelCard({ text, tone = "white", selected, disabled, onClick }:
   return (
     <button
       className={cn(
-        "flex min-h-44 w-full flex-col justify-between rounded-md border p-4 text-left shadow-card transition",
+        "flex h-48 w-full flex-col justify-between rounded-md border p-4 text-left shadow-card transition",
         tone === "black" && "border-ink bg-ink text-white",
         tone === "white" && "border-ink/10 bg-white text-ink hover:-translate-y-0.5 hover:border-emerald/50",
         tone === "winner" && "border-amber bg-amber/10 text-ink",
@@ -27,7 +27,7 @@ export function JewelCard({ text, tone = "white", selected, disabled, onClick }:
       onClick={onClick}
       type="button"
     >
-      <span className="text-balance text-lg font-black leading-tight">{text}</span>
+      <span className="overflow-y-auto pr-1 text-balance text-base font-black leading-tight">{text}</span>
       <span className="mt-4 flex items-center justify-between text-xs font-bold uppercase tracking-normal opacity-70">
         <span>Cards Against Jewels</span>
         {tone === "black" ? <Gavel size={18} /> : tone === "winner" ? <Crown size={18} /> : <Gem size={18} />}
@@ -41,18 +41,19 @@ type PlayerRowProps = {
   score: number;
   isHost: boolean;
   isJudge: boolean;
+  isWaiting: boolean;
   connected: boolean;
   hasSubmitted: boolean;
   canKick: boolean;
   onKick: () => void;
 };
 
-export function PlayerRow({ name, score, isHost, isJudge, connected, hasSubmitted, canKick, onKick }: PlayerRowProps) {
+export function PlayerRow({ name, score, isHost, isJudge, isWaiting, connected, hasSubmitted, canKick, onKick }: PlayerRowProps) {
   return (
     <div
       className={cn(
         "flex items-center gap-3 rounded-md border px-3 py-2",
-        isJudge ? "border-amber/40 bg-amber/10" : "border-ink/10 bg-white"
+        isJudge ? "border-amber/40 bg-amber/10" : isWaiting ? "border-emerald/30 bg-emerald/10" : "border-ink/10 bg-white"
       )}
     >
       <div className={cn("h-2.5 w-2.5 rounded-full", connected ? "bg-emerald" : "bg-stone-300")} />
@@ -61,6 +62,7 @@ export function PlayerRow({ name, score, isHost, isJudge, connected, hasSubmitte
         <div className="flex flex-wrap gap-1 text-[11px] font-semibold uppercase tracking-normal text-ink/55">
           {isHost && <span>host</span>}
           {isJudge && <span>juiz</span>}
+          {isWaiting && <span>espera</span>}
           {hasSubmitted && <span>jogou</span>}
           {canKick && (
             <button className="font-black text-ruby underline-offset-2 hover:underline" onClick={onKick} type="button">
@@ -88,28 +90,32 @@ export function SubmissionStack({
   onChoose: () => void;
 }) {
   return (
-    <div className={cn("rounded-md border bg-white p-3 shadow-card", isWinner ? "border-amber" : "border-ink/10")}>
-      <div className="grid gap-2">
+    <div className={cn("flex h-full min-h-64 flex-col rounded-md border bg-white p-3 shadow-card", isWinner ? "border-amber" : "border-ink/10")}>
+      <div className="grid flex-1 gap-2">
         {cards.length > 0 ? (
           cards.map((card) => (
-            <div className="rounded bg-stone-50 p-3 text-sm font-bold leading-snug text-ink" key={card.id}>
+            <div className="flex min-h-28 rounded bg-stone-50 p-3 text-sm font-bold leading-snug text-ink" key={card.id}>
               {card.text}
             </div>
           ))
         ) : (
-          <div className="flex min-h-28 items-center justify-center rounded bg-ink p-3 text-center text-xs font-black uppercase tracking-normal text-white">
-            Carta virada
+          <div className="flex min-h-28 items-center justify-center rounded bg-ink p-3">
+            <img alt="Carta virada" className="h-14 w-14 object-contain" src="/logo.png" />
           </div>
         )}
       </div>
-      {isMine && <div className="mt-3 text-xs font-black uppercase tracking-normal text-emerald">sua carta</div>}
-      {canChoose && (
-        <Button className="mt-3 w-full" onClick={onChoose} type="button" variant="ruby">
-          <Check size={16} />
-          Escolher
-        </Button>
-      )}
-      {isWinner && <div className="mt-3 text-xs font-black uppercase tracking-normal text-amber">resposta vencedora</div>}
+      <div className="mt-3 min-h-14">
+        {isMine && <div className="mb-2 text-xs font-black uppercase tracking-normal text-emerald">sua carta</div>}
+        {canChoose ? (
+          <Button className="h-11 w-full" onClick={onChoose} type="button" variant="ruby">
+            <Check size={16} />
+            Escolher
+          </Button>
+        ) : (
+          <div className="h-11" />
+        )}
+        {isWinner && <div className="mt-2 text-xs font-black uppercase tracking-normal text-amber">resposta vencedora</div>}
+      </div>
     </div>
   );
 }

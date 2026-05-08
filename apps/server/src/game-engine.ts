@@ -17,6 +17,7 @@ type Player = {
   name: string;
   score: number;
   connected: boolean;
+  isWaiting: boolean;
   hand: WhiteCard[];
 };
 
@@ -125,8 +126,8 @@ export class GameEngine {
       };
     }
 
-    if (room.phase !== "lobby") {
-      throw new GameEngineError("ROOM_LOCKED", "Esta partida já começou.");
+    if (room.phase === "game_over") {
+      throw new GameEngineError("ROOM_LOCKED", "Esta partida já terminou.");
     }
 
     if (room.players.length >= room.settings.maxPlayers) {
@@ -139,6 +140,7 @@ export class GameEngine {
       name,
       score: 0,
       connected: true,
+      isWaiting: room.phase !== "lobby",
       hand: []
     };
 
@@ -176,7 +178,7 @@ export class GameEngine {
       throw new GameEngineError("INVALID_MOVE", "A partida já começou.");
     }
 
-    if (room.players.filter((player) => player.connected).length < room.settings.minPlayers) {
+    if (room.players.filter((player) => player.connected && !player.isWaiting).length < room.settings.minPlayers) {
       throw new GameEngineError("NOT_ENOUGH_PLAYERS", `A sala precisa de pelo menos ${room.settings.minPlayers} jogadores.`);
     }
 
@@ -187,10 +189,11 @@ export class GameEngine {
     room.submissions = [];
     room.players.forEach((player) => {
       player.score = 0;
+      player.isWaiting = false;
       player.hand = [];
       this.drawToHand(room, player);
     });
-    room.judgeId = room.players.find((player) => player.connected)?.id ?? null;
+    room.judgeId = room.players.find((player) => player.connected && !player.isWaiting)?.id ?? null;
     room.blackCard = this.drawBlack(room);
     room.phase = "submitting";
     this.schedulePhaseTimeout(room);
@@ -202,6 +205,10 @@ export class GameEngine {
 
     if (room.phase !== "submitting" || !room.blackCard) {
       throw new GameEngineError("INVALID_MOVE", "Não é hora de jogar cartas.");
+    }
+
+    if (player.isWaiting) {
+      throw new GameEngineError("INVALID_MOVE", "Você entra na próxima rodada.");
     }
 
     if (room.judgeId === actorId) {
@@ -295,7 +302,7 @@ export class GameEngine {
     room.players = room.players.filter((player) => player.id !== target.id);
     room.submissions = room.submissions.filter((submission) => submission.playerId !== target.id);
 
-    if (room.players.filter((player) => player.connected).length < room.settings.minPlayers && room.phase !== "lobby") {
+    if (room.players.filter((player) => player.connected && !player.isWaiting).length < room.settings.minPlayers && room.phase !== "lobby") {
       room.phase = "game_over";
       this.clearPhaseTimeout(room);
       return;
@@ -325,6 +332,7 @@ export class GameEngine {
         score: player.score,
         isHost: room.hostPlayerId === player.id,
         isJudge: room.judgeId === player.id,
+        isWaiting: player.isWaiting,
         connected: player.connected,
         handCount: player.hand.length,
         hasSubmitted: room.submissions.some((submission) => submission.playerId === player.id)
@@ -344,13 +352,14 @@ export class GameEngine {
               result: room.result
             }
           : null,
-      hand: viewer?.hand ?? [],
+      hand: viewer && !viewer.isWaiting ? viewer.hand : [],
       me: viewer
         ? {
             playerId: viewer.id,
             name: viewer.name,
             isHost: room.hostPlayerId === viewer.id,
-            isJudge: room.judgeId === viewer.id
+            isJudge: room.judgeId === viewer.id,
+            isWaiting: viewer.isWaiting
           }
         : null
     };
@@ -387,7 +396,7 @@ export class GameEngine {
       return;
     }
 
-    const expectedSubmitters = room.players.filter((player) => player.connected && player.id !== room.judgeId);
+    const expectedSubmitters = room.players.filter((player) => player.connected && !player.isWaiting && player.id !== room.judgeId);
     const submittedPlayerIds = new Set(room.submissions.map((submission) => submission.playerId));
 
     if (expectedSubmitters.length > 0 && expectedSubmitters.every((player) => submittedPlayerIds.has(player.id))) {
@@ -397,7 +406,13 @@ export class GameEngine {
   }
 
   private startNextRound(room: Room): void {
-    if (room.players.filter((player) => player.connected).length < room.settings.minPlayers) {
+    room.players.forEach((player) => {
+      if (player.connected && player.isWaiting) {
+        player.isWaiting = false;
+      }
+    });
+
+    if (room.players.filter((player) => player.connected && !player.isWaiting).length < room.settings.minPlayers) {
       room.phase = "game_over";
       this.clearPhaseTimeout(room);
       return;
@@ -413,10 +428,17 @@ export class GameEngine {
     this.schedulePhaseTimeout(room);
   }
 
-  private handlePhaseTimeout(roomCode: string): void {
+  private handlePhaseTimeout(roomCode: string, expectedDeadlineAt: number): void {
     const room = this.rooms.get(roomCode);
 
-    if (!room || !room.deadlineAt || Date.now() < room.deadlineAt) {
+    if (!room || !room.deadlineAt || room.deadlineAt !== expectedDeadlineAt) {
+      return;
+    }
+
+    const remainingMs = room.deadlineAt - Date.now();
+
+    if (remainingMs > 0) {
+      this.setPhaseTimeout(room, remainingMs, expectedDeadlineAt);
       return;
     }
 
@@ -449,7 +471,11 @@ export class GameEngine {
 
     const timeoutMs = room.phase === "round_result" ? 5000 : room.settings.timerSeconds * 1000;
     room.deadlineAt = Date.now() + timeoutMs;
-    room.timeout = setTimeout(() => this.handlePhaseTimeout(room.code), timeoutMs);
+    this.setPhaseTimeout(room, timeoutMs, room.deadlineAt);
+  }
+
+  private setPhaseTimeout(room: Room, timeoutMs: number, expectedDeadlineAt: number): void {
+    room.timeout = setTimeout(() => this.handlePhaseTimeout(room.code, expectedDeadlineAt), Math.max(10, timeoutMs + 25));
     room.timeout.unref?.();
   }
 
@@ -463,7 +489,7 @@ export class GameEngine {
   }
 
   private getNextJudgeId(room: Room): string {
-    const fallback = room.players.find((player) => player.connected);
+    const fallback = room.players.find((player) => player.connected && !player.isWaiting);
 
     if (!fallback) {
       throw new GameEngineError("NOT_ENOUGH_PLAYERS", "Não há jogadores conectados.");
@@ -474,7 +500,7 @@ export class GameEngine {
     for (let offset = 1; offset <= room.players.length; offset += 1) {
       const candidate = room.players[(currentIndex + offset + room.players.length) % room.players.length];
 
-      if (candidate.connected) {
+      if (candidate.connected && !candidate.isWaiting) {
         return candidate.id;
       }
     }

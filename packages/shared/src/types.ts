@@ -17,6 +17,7 @@ export type PlayerPublic = {
   score: number;
   isHost: boolean;
   isJudge: boolean;
+  isWaiting: boolean;
   connected: boolean;
   handCount: number;
   hasSubmitted: boolean;
@@ -64,6 +65,7 @@ export type PublicRoomState = {
     name: string;
     isHost: boolean;
     isJudge: boolean;
+    isWaiting: boolean;
   } | null;
 };
 

@@ -84,11 +84,41 @@ describe("GameEngine", () => {
 
     expect(game.getPublicRoom(code, players[0].playerId).phase).toBe("round_result");
 
-    vi.advanceTimersByTime(5000);
+    vi.advanceTimersByTime(5025);
 
     const nextState = game.getPublicRoom(code, players[0].playerId);
     expect(nextState.phase).toBe("submitting");
     expect(nextState.round?.number).toBe(2);
+  });
+
+  it("puts late joiners in a waiting queue until the next round", () => {
+    vi.useFakeTimers();
+    const game = new GameEngine();
+    const { code } = game.createRoom({ maxPlayers: 4, timerSeconds: 30, pointsToWin: 5 });
+    const players = joinPlayers(game, code, 3);
+
+    game.startGame(code, players[0].playerId);
+
+    const lateJoiner = game.joinRoom(code, "Late Ruby");
+    const waitingState = game.getPublicRoom(code, lateJoiner.playerId);
+
+    expect(waitingState.me?.isWaiting).toBe(true);
+    expect(waitingState.hand).toHaveLength(0);
+    expect(waitingState.players.find((player) => player.id === lateJoiner.playerId)?.isWaiting).toBe(true);
+
+    let state = game.getPublicRoom(code, players[1].playerId);
+    game.submitCards(code, players[1].playerId, [state.hand[0].id]);
+    state = game.getPublicRoom(code, players[2].playerId);
+    game.submitCards(code, players[2].playerId, [state.hand[0].id]);
+
+    const judgeState = game.getPublicRoom(code, players[0].playerId);
+    game.chooseWinner(code, players[0].playerId, judgeState.round!.submissions[0].id);
+    vi.advanceTimersByTime(5025);
+
+    const nextState = game.getPublicRoom(code, lateJoiner.playerId);
+    expect(nextState.me?.isWaiting).toBe(false);
+    expect(nextState.hand).toHaveLength(nextState.settings.handSize);
+    expect(nextState.players.find((player) => player.id === lateJoiner.playerId)?.isWaiting).toBe(false);
   });
 
   it("rejects starting a game without enough connected players", () => {
