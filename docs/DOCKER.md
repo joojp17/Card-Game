@@ -50,12 +50,16 @@ For production on a VPS, use:
 
 ```bash
 cp .env.production.example .env.production
-docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
-docker compose --env-file .env.production -f docker-compose.prod.yml run --rm server npm run db:deploy --workspace @cards-against-jewels/server
-docker compose --env-file .env.production -f docker-compose.prod.yml run --rm server npm run db:seed --workspace @cards-against-jewels/server
+cat > .env.release <<'EOF'
+SERVER_IMAGE=cards-against-jewels-server:<tag>
+WEB_IMAGE=cards-against-jewels-web:<tag>
+EOF
+docker compose --env-file .env.production --env-file .env.release -f docker-compose.prod.yml up -d
+docker compose --env-file .env.production --env-file .env.release -f docker-compose.prod.yml run --rm server npm run db:deploy --workspace @cards-against-jewels/server
+docker compose --env-file .env.production --env-file .env.release -f docker-compose.prod.yml run --rm server npm run db:seed --workspace @cards-against-jewels/server
 ```
 
-The automated GitHub Actions deploy builds images on GitHub runners and uploads them to the VPS. That avoids high CPU/RAM usage on small VPS instances during `npm ci` and `vite build`.
+The automated GitHub Actions deploy builds images on GitHub runners, uploads them to the VPS, and writes `.env.release`. That avoids high CPU/RAM usage on small VPS instances during `npm ci` and `vite build`.
 
 The web container is exposed on:
 
@@ -74,14 +78,14 @@ http://localhost:3333
 Build locally:
 
 ```bash
-docker build -t cards-against-jewels-server --target server .
-docker build --target web --build-arg VITE_SERVER_URL=https://api.example.com -t cards-against-jewels-web .
+docker build -t cards-against-jewels-server:manual --target server .
+docker build --target web --build-arg VITE_SERVER_URL=https://api.example.com -t cards-against-jewels-web:manual .
 ```
 
 Export:
 
 ```bash
-docker save cards-against-jewels-server cards-against-jewels-web | gzip > cards-against-jewels-images.tar.gz
+docker save cards-against-jewels-server:manual cards-against-jewels-web:manual | gzip > cards-against-jewels-images.tar.gz
 ```
 
 Upload:
@@ -94,6 +98,15 @@ Load on the VPS:
 
 ```bash
 gunzip -c /tmp/cards-against-jewels-images.tar.gz | docker load
+```
+
+If you use `docker-compose.prod.yml`, set `.env.release` to the loaded tags:
+
+```bash
+cat > .env.release <<'EOF'
+SERVER_IMAGE=cards-against-jewels-server:manual
+WEB_IMAGE=cards-against-jewels-web:manual
+EOF
 ```
 
 Run the API:

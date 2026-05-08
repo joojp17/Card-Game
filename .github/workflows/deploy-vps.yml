@@ -122,5 +122,5 @@ jobs:
         run: |
           set -euo pipefail
           ssh -o ConnectTimeout=30 -o ConnectionAttempts=5 -o ServerAliveInterval=30 -o ServerAliveCountMax=10 -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" \
-            "APP_DIR='$VPS_PATH' REPO_URL='$REPO_URL' RELEASE_REF='$GITHUB_SHA' HEALTH_URL='$HEALTH_URL' IMAGE_ARCHIVE='$VPS_PATH/uploads/${GITHUB_SHA}.images.tar.gz' bash -s" \
+            "APP_DIR='$VPS_PATH' REPO_URL='$REPO_URL' RELEASE_REF='$GITHUB_SHA' IMAGE_TAG='$GITHUB_SHA' HEALTH_URL='$HEALTH_URL' IMAGE_ARCHIVE='$VPS_PATH/uploads/${GITHUB_SHA}.images.tar.gz' bash -s" \
             < scripts/deploy/remote-compose-deploy.sh

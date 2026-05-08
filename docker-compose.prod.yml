@@ -16,10 +16,7 @@ services:
       start_period: 10s
 
   server:
-    image: ${SERVER_IMAGE:-cards-against-jewels-server:local}
-    build:
-      context: .
-      target: server
+    image: ${SERVER_IMAGE:?SERVER_IMAGE is required}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -39,13 +36,7 @@ services:
       start_period: 20s
 
   web:
-    image: ${WEB_IMAGE:-cards-against-jewels-web:local}
-    build:
-      context: .
-      target: web
-      args:
-        VITE_SERVER_URL: ${VITE_SERVER_URL:?VITE_SERVER_URL is required}
-        VITE_DISCORD_CLIENT_ID: ${VITE_DISCORD_CLIENT_ID:-}
+    image: ${WEB_IMAGE:?WEB_IMAGE is required}
     restart: unless-stopped
     depends_on:
       server:

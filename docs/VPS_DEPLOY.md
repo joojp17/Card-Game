@@ -51,30 +51,34 @@ POSTGRES_DB=caj
 POSTGRES_USER=caj
 POSTGRES_PASSWORD=change_me
 DATABASE_URL=postgresql://caj:change_me@postgres:5432/caj?schema=public
-VITE_SERVER_URL=https://api.example.com
-VITE_DISCORD_CLIENT_ID=
 ```
 
 If the database password contains URL-reserved characters, encode them in `DATABASE_URL`.
 
 ## First Deploy
 
-Build and start everything:
+After configuring GitHub Actions secrets, run the production workflow from GitHub. The workflow builds Docker images on GitHub runners, uploads them to the VPS, writes `.env.release`, applies migrations, and starts the loaded images.
+
+If you need to run production Compose manually, load or build the images first and create `.env.release` with the image tags to run:
 
 ```bash
-docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
+cat > .env.release <<'EOF'
+SERVER_IMAGE=cards-against-jewels-server:<tag>
+WEB_IMAGE=cards-against-jewels-web:<tag>
+EOF
+docker compose --env-file .env.production --env-file .env.release -f docker-compose.prod.yml up -d
 ```
 
 Run migrations:
 
 ```bash
-docker compose --env-file .env.production -f docker-compose.prod.yml run --rm server npm run db:deploy --workspace @cards-against-jewels/server
+docker compose --env-file .env.production --env-file .env.release -f docker-compose.prod.yml run --rm server npm run db:deploy --workspace @cards-against-jewels/server
 ```
 
 Seed cards once for a new database:
 
 ```bash
-docker compose --env-file .env.production -f docker-compose.prod.yml run --rm server npm run db:seed --workspace @cards-against-jewels/server
+docker compose --env-file .env.production --env-file .env.release -f docker-compose.prod.yml run --rm server npm run db:seed --workspace @cards-against-jewels/server
 ```
 
 The seed data itself is intentionally not versioned. Before running the seed, create this local file on the VPS:
@@ -88,7 +92,7 @@ Use `apps/server/prisma/seed-data.example.ts` as the format reference.
 Check containers:
 
 ```bash
-docker compose --env-file .env.production -f docker-compose.prod.yml ps
+docker compose --env-file .env.production --env-file .env.release -f docker-compose.prod.yml ps
 ```
 
 ## GitHub Actions Deploy
@@ -133,6 +137,8 @@ https://api.example.com/health
 ```txt
 https://api.example.com
 ```
+
+`VITE_SERVER_URL` and `VITE_DISCORD_CLIENT_ID` are build-time values for the Vite frontend. Set them as GitHub secrets before the workflow builds the web image; changing `.env.production` on the VPS will not rewrite an already-built frontend bundle.
 
 ## Nginx
 
@@ -182,20 +188,19 @@ sudo certbot --nginx -d jogo.example.com -d api.example.com
 View logs:
 
 ```bash
-docker compose --env-file .env.production -f docker-compose.prod.yml logs -f server
+docker compose --env-file .env.production --env-file .env.release -f docker-compose.prod.yml logs -f server
 ```
 
 Restart:
 
 ```bash
-docker compose --env-file .env.production -f docker-compose.prod.yml restart server web
+docker compose --env-file .env.production --env-file .env.release -f docker-compose.prod.yml restart server web
 ```
 
-Update manually:
+Update manually with images already loaded on the VPS:
 
 ```bash
 git pull
-docker compose --env-file .env.production -f docker-compose.prod.yml build
-docker compose --env-file .env.production -f docker-compose.prod.yml run --rm server npm run db:deploy --workspace @cards-against-jewels/server
-docker compose --env-file .env.production -f docker-compose.prod.yml up -d
+docker compose --env-file .env.production --env-file .env.release -f docker-compose.prod.yml run --rm server npm run db:deploy --workspace @cards-against-jewels/server
+docker compose --env-file .env.production --env-file .env.release -f docker-compose.prod.yml up -d
 ```
