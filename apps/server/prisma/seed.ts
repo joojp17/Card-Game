@@ -1,10 +1,27 @@
 import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
-import { brDeckSeed } from "./seed-data/br-deck.js";
 
 const prisma = new PrismaClient();
+const localSeedModulePath = "./seed-data/br-deck.js";
+
+type DeckSeed = {
+  slug: string;
+  name: string;
+  description?: string;
+  watermark?: string;
+  blackCards: Array<{
+    id: string;
+    text: string;
+    pick: number;
+  }>;
+  whiteCards: Array<{
+    id: string;
+    text: string;
+  }>;
+};
 
 async function main() {
+  const brDeckSeed = await loadLocalDeckSeed();
   const deck = await prisma.deck.upsert({
     where: { slug: brDeckSeed.slug },
     create: {
@@ -47,6 +64,29 @@ async function main() {
   console.log(
     `Seeded ${brDeckSeed.name}: ${brDeckSeed.blackCards.length} black cards and ${brDeckSeed.whiteCards.length} white cards.`
   );
+}
+
+async function loadLocalDeckSeed(): Promise<DeckSeed> {
+  try {
+    const seedModule = (await import(localSeedModulePath)) as { brDeckSeed?: DeckSeed };
+
+    if (!seedModule.brDeckSeed) {
+      throw new Error("O arquivo local precisa exportar `brDeckSeed`.");
+    }
+
+    return seedModule.brDeckSeed;
+  } catch (error) {
+    throw new Error(
+      [
+        "Seed local não encontrado.",
+        "Crie `apps/server/prisma/seed-data/br-deck.ts` a partir de `apps/server/prisma/seed-data.example.ts`.",
+        "Esse arquivo é ignorado pelo Git para não publicar cartas privadas.",
+        error instanceof Error ? `Erro original: ${error.message}` : ""
+      ]
+        .filter(Boolean)
+        .join(" ")
+    );
+  }
 }
 
 main()

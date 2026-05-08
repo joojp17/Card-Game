@@ -38,6 +38,14 @@ docker compose run --rm server npm run db:deploy --workspace @cards-against-jewe
 docker compose run --rm server npm run db:seed --workspace @cards-against-jewels/server
 ```
 
+The seed command expects a local, ignored file at:
+
+```txt
+apps/server/prisma/seed-data/br-deck.ts
+```
+
+Use `apps/server/prisma/seed-data.example.ts` as the public template.
+
 For production on a VPS, use:
 
 ```bash

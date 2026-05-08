@@ -77,6 +77,14 @@ Seed cards once for a new database:
 docker compose --env-file .env.production -f docker-compose.prod.yml run --rm server npm run db:seed --workspace @cards-against-jewels/server
 ```
 
+The seed data itself is intentionally not versioned. Before running the seed, create this local file on the VPS:
+
+```txt
+apps/server/prisma/seed-data/br-deck.ts
+```
+
+Use `apps/server/prisma/seed-data.example.ts` as the format reference.
+
 Check containers:
 
 ```bash
