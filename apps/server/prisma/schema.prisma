@@ -1,0 +1,48 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Deck {
+  id          String      @id @default(cuid())
+  slug        String      @unique
+  name        String
+  description String?
+  watermark   String?
+  isActive    Boolean     @default(true)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  blackCards  BlackCard[]
+  whiteCards  WhiteCard[]
+}
+
+model BlackCard {
+  id        String   @id @default(cuid())
+  externalId String  @unique
+  deckId    String
+  text      String
+  pick      Int      @default(1)
+  order     Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deck      Deck     @relation(fields: [deckId], references: [id], onDelete: Cascade)
+
+  @@index([deckId, order])
+}
+
+model WhiteCard {
+  id        String   @id @default(cuid())
+  externalId String  @unique
+  deckId    String
+  text      String
+  order     Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deck      Deck     @relation(fields: [deckId], references: [id], onDelete: Cascade)
+
+  @@index([deckId, order])
+}
