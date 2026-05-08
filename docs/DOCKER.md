@@ -55,6 +55,8 @@ docker compose --env-file .env.production -f docker-compose.prod.yml run --rm se
 docker compose --env-file .env.production -f docker-compose.prod.yml run --rm server npm run db:seed --workspace @cards-against-jewels/server
 ```
 
+The automated GitHub Actions deploy builds images on GitHub runners and uploads them to the VPS. That avoids high CPU/RAM usage on small VPS instances during `npm ci` and `vite build`.
+
 The web container is exposed on:
 
 ```txt

@@ -93,7 +93,7 @@ docker compose --env-file .env.production -f docker-compose.prod.yml ps
 
 ## GitHub Actions Deploy
 
-The workflow `.github/workflows/deploy-vps.yml` runs CI and then SSHes into the VPS. The VPS pulls the requested Git commit, builds images with Docker Compose, applies Prisma migrations, starts containers, and checks health. If health fails, it checks out the previous commit and restarts server/web.
+The workflow `.github/workflows/deploy-vps.yml` runs CI, builds Docker images on GitHub-hosted runners, uploads the image archive to the VPS, and then SSHes into the VPS. The VPS only loads the images, pulls the requested Git commit, applies Prisma migrations, starts containers, and checks health. If health fails, it checks out the previous commit and restarts server/web.
 
 Required GitHub Secrets:
 
@@ -103,6 +103,7 @@ VPS_USER
 VPS_SSH_KEY
 REPO_URL
 HEALTH_URL
+VITE_SERVER_URL
 ```
 
 Optional:
@@ -125,6 +126,12 @@ VPS_PATH=/opt/cards-against-jewels
 
 ```txt
 https://api.example.com/health
+```
+
+`VITE_SERVER_URL` should be the public API URL used by players' browsers:
+
+```txt
+https://api.example.com
 ```
 
 ## Nginx

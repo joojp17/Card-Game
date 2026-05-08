@@ -7,7 +7,9 @@ set -Eeuo pipefail
 
 COMPOSE="docker compose --env-file .env.production -f docker-compose.prod.yml"
 HEALTH_URL="${HEALTH_URL:-}"
+IMAGE_ARCHIVE="${IMAGE_ARCHIVE:-}"
 PREVIOUS_REF=""
+PREVIOUS_RELEASE_ENV=""
 
 rollback() {
   echo "Deploy failed. Rolling back to previous ref..."
@@ -15,7 +17,12 @@ rollback() {
   if [ -n "$PREVIOUS_REF" ]; then
     cd "$APP_DIR"
     git checkout "$PREVIOUS_REF"
-    $COMPOSE up -d --build server web
+
+    if [ -n "$PREVIOUS_RELEASE_ENV" ] && [ -f "$PREVIOUS_RELEASE_ENV" ]; then
+      cp "$PREVIOUS_RELEASE_ENV" .env.release
+    fi
+
+    $COMPOSE up -d server web
   fi
 }
 
@@ -29,6 +36,11 @@ fi
 cd "$APP_DIR"
 PREVIOUS_REF="$(git rev-parse HEAD 2>/dev/null || true)"
 
+if [ -f ".env.release" ]; then
+  PREVIOUS_RELEASE_ENV="$(mktemp)"
+  cp .env.release "$PREVIOUS_RELEASE_ENV"
+fi
+
 git fetch --all --prune
 git checkout "$RELEASE_REF"
 git reset --hard "$RELEASE_REF"
@@ -39,7 +51,19 @@ if [ ! -f ".env.production" ]; then
   exit 1
 fi
 
-$COMPOSE build
+cat > .env.release <<EOF
+SERVER_IMAGE=cards-against-jewels-server:${RELEASE_REF}
+WEB_IMAGE=cards-against-jewels-web:${RELEASE_REF}
+EOF
+
+set -a
+. ./.env.release
+set +a
+
+if [ -n "$IMAGE_ARCHIVE" ]; then
+  docker load -i "$IMAGE_ARCHIVE"
+fi
+
 $COMPOSE up -d postgres
 $COMPOSE run --rm server npm run db:deploy --workspace @cards-against-jewels/server
 $COMPOSE up -d server web
