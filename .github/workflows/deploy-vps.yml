@@ -90,7 +90,15 @@ jobs:
           mkdir -p ~/.ssh
           printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -p "$VPS_PORT" "$VPS_HOST" >> ~/.ssh/known_hosts
+          for attempt in 1 2 3 4 5; do
+            if ssh-keyscan -T 20 -p "$VPS_PORT" "$VPS_HOST" >> ~/.ssh/known_hosts; then
+              exit 0
+            fi
+            echo "ssh-keyscan failed on attempt ${attempt}; retrying in 10 seconds..."
+            sleep 10
+          done
+          echo "ssh-keyscan failed after 5 attempts"
+          exit 1
 
       - name: Upload images
         env:
@@ -100,8 +108,8 @@ jobs:
           VPS_PORT: ${{ secrets.VPS_PORT || '22' }}
         run: |
           set -euo pipefail
-          ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=10 -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" "mkdir -p '$VPS_PATH/uploads'"
-          scp -o ServerAliveInterval=30 -o ServerAliveCountMax=10 -P "$VPS_PORT" images.tar.gz "$VPS_USER@$VPS_HOST:$VPS_PATH/uploads/${GITHUB_SHA}.images.tar.gz"
+          ssh -o ConnectTimeout=30 -o ConnectionAttempts=5 -o ServerAliveInterval=30 -o ServerAliveCountMax=10 -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" "mkdir -p '$VPS_PATH/uploads'"
+          scp -o ConnectTimeout=30 -o ConnectionAttempts=5 -o ServerAliveInterval=30 -o ServerAliveCountMax=10 -P "$VPS_PORT" images.tar.gz "$VPS_USER@$VPS_HOST:$VPS_PATH/uploads/${GITHUB_SHA}.images.tar.gz"
 
       - name: Deploy with Docker Compose
         env:
@@ -113,6 +121,6 @@ jobs:
           HEALTH_URL: ${{ env.HEALTH_URL }}
         run: |
           set -euo pipefail
-          ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=10 -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" \
+          ssh -o ConnectTimeout=30 -o ConnectionAttempts=5 -o ServerAliveInterval=30 -o ServerAliveCountMax=10 -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" \
             "APP_DIR='$VPS_PATH' REPO_URL='$REPO_URL' RELEASE_REF='$GITHUB_SHA' HEALTH_URL='$HEALTH_URL' IMAGE_ARCHIVE='$VPS_PATH/uploads/${GITHUB_SHA}.images.tar.gz' bash -s" \
             < scripts/deploy/remote-compose-deploy.sh
