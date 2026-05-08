@@ -121,6 +121,30 @@ describe("GameEngine", () => {
     expect(nextState.players.find((player) => player.id === lateJoiner.playerId)?.isWaiting).toBe(false);
   });
 
+  it("keeps the game running when kicking a player leaves enough active players", () => {
+    const game = new GameEngine();
+    const { code } = game.createRoom({ maxPlayers: 5, timerSeconds: 30, pointsToWin: 5 });
+    const players = joinPlayers(game, code, 4);
+
+    game.startGame(code, players[0].playerId);
+    const kicked = game.kickPlayer(code, players[0].playerId, players[3].playerId);
+    const state = game.getPublicRoom(code, players[0].playerId);
+
+    expect(kicked.playerId).toBe(players[3].playerId);
+    expect(state.phase).not.toBe("game_over");
+    expect(state.players).toHaveLength(3);
+  });
+
+  it("blocks kicked players from rejoining with the same room token", () => {
+    const game = new GameEngine();
+    const { code } = game.createRoom();
+    const players = joinPlayers(game, code, 3);
+
+    game.kickPlayer(code, players[0].playerId, players[1].playerId);
+
+    expect(() => game.joinRoom(code, "Player 2 Again", players[1].playerToken)).toThrow(/removido/);
+  });
+
   it("rejects starting a game without enough connected players", () => {
     const game = new GameEngine();
     const { code } = game.createRoom();

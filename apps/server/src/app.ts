@@ -171,7 +171,21 @@ export function buildApp(options: { game?: GameEngine; cardCatalog?: CardCatalog
 
       try {
         const { roomCode, playerId } = requireSocketRoom();
-        game.kickPlayer(roomCode, playerId, parsed.data.playerId);
+        const kicked = game.kickPlayer(roomCode, playerId, parsed.data.playerId);
+        const roomSockets = await io.in(roomCode).fetchSockets();
+
+        for (const roomSocket of roomSockets) {
+          if (roomSocket.data.playerId === kicked.playerId) {
+            roomSocket.emit("kickedFromRoom", {
+              roomCode: kicked.roomCode,
+              message: "Você foi removido desta sala pelo host."
+            });
+            roomSocket.leave(roomCode);
+            roomSocket.data.roomCode = undefined;
+            roomSocket.data.playerId = undefined;
+          }
+        }
+
         await emitRoom(roomCode);
       } catch (error) {
         sendGameError(error);

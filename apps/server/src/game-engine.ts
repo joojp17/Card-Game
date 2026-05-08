@@ -32,6 +32,7 @@ type Room = {
   phase: RoomPhase;
   hostPlayerId: string | null;
   players: Player[];
+  kickedTokens: Set<string>;
   settings: RoomSettings;
   blackDeck: BlackCard[];
   whiteDeck: WhiteCard[];
@@ -54,6 +55,12 @@ export type JoinResult = {
   room: PublicRoomState;
 };
 
+export type KickResult = {
+  playerId: string;
+  playerToken: string;
+  roomCode: string;
+};
+
 export class GameEngine {
   private readonly rooms = new Map<string, Room>();
 
@@ -74,6 +81,7 @@ export class GameEngine {
       phase: "lobby",
       hostPlayerId: null,
       players: [],
+      kickedTokens: new Set(),
       settings: {
         minPlayers: GAME_LIMITS.minPlayers,
         maxPlayers: settings.maxPlayers ?? GAME_LIMITS.maxPlayers,
@@ -114,6 +122,10 @@ export class GameEngine {
     const room = this.requireRoom(code);
     const name = playerName.trim();
     const returningPlayer = playerToken ? room.players.find((player) => player.token === playerToken) : null;
+
+    if (playerToken && room.kickedTokens.has(playerToken)) {
+      throw new GameEngineError("ROOM_LOCKED", "Você foi removido desta sala.");
+    }
 
     if (returningPlayer) {
       returningPlayer.name = name;
@@ -289,7 +301,7 @@ export class GameEngine {
     this.startNextRound(room);
   }
 
-  kickPlayer(code: string, actorId: string, targetPlayerId: string): void {
+  kickPlayer(code: string, actorId: string, targetPlayerId: string): KickResult {
     const room = this.requireRoom(code);
 
     this.requireHost(room, actorId);
@@ -299,21 +311,29 @@ export class GameEngine {
     }
 
     const target = this.requirePlayer(room, targetPlayerId);
+    const kicked: KickResult = {
+      playerId: target.id,
+      playerToken: target.token,
+      roomCode: room.code
+    };
+
+    room.kickedTokens.add(target.token);
     room.players = room.players.filter((player) => player.id !== target.id);
     room.submissions = room.submissions.filter((submission) => submission.playerId !== target.id);
 
-    if (room.players.filter((player) => player.connected && !player.isWaiting).length < room.settings.minPlayers && room.phase !== "lobby") {
+    if (this.getActivePlayerCount(room) < room.settings.minPlayers && room.phase !== "lobby") {
       room.phase = "game_over";
       this.clearPhaseTimeout(room);
-      return;
+      return kicked;
     }
 
     if (room.judgeId === target.id && room.phase !== "lobby") {
       this.startNextRound(room);
-      return;
+      return kicked;
     }
 
     this.advanceSubmittingIfReady(room);
+    return kicked;
   }
 
   getPublicRoom(code: string, viewerPlayerId: string): PublicRoomState {
@@ -326,6 +346,7 @@ export class GameEngine {
       phase: room.phase,
       settings: room.settings,
       deadlineAt: room.deadlineAt,
+      serverNow: Date.now(),
       players: room.players.map((player) => ({
         id: player.id,
         name: player.name,
@@ -506,6 +527,10 @@ export class GameEngine {
     }
 
     return fallback.id;
+  }
+
+  private getActivePlayerCount(room: Room): number {
+    return room.players.filter((player) => player.connected && !player.isWaiting).length;
   }
 
   private drawToHand(room: Room, player: Player): void {

@@ -43,12 +43,11 @@ type PlayerRowProps = {
   isJudge: boolean;
   isWaiting: boolean;
   connected: boolean;
-  hasSubmitted: boolean;
   canKick: boolean;
   onKick: () => void;
 };
 
-export function PlayerRow({ name, score, isHost, isJudge, isWaiting, connected, hasSubmitted, canKick, onKick }: PlayerRowProps) {
+export function PlayerRow({ name, score, isHost, isJudge, isWaiting, connected, canKick, onKick }: PlayerRowProps) {
   return (
     <div
       className={cn(
@@ -63,7 +62,6 @@ export function PlayerRow({ name, score, isHost, isJudge, isWaiting, connected, 
           {isHost && <span>host</span>}
           {isJudge && <span>juiz</span>}
           {isWaiting && <span>espera</span>}
-          {hasSubmitted && <span>jogou</span>}
           {canKick && (
             <button className="font-black text-ruby underline-offset-2 hover:underline" onClick={onKick} type="button">
               kikar
@@ -100,7 +98,7 @@ export function SubmissionStack({
           ))
         ) : (
           <div className="flex min-h-28 items-center justify-center rounded bg-ink p-3">
-            <img alt="Carta virada" className="h-14 w-14 object-contain" src="/logo.png" />
+            <img alt="" aria-hidden="true" className="h-14 w-14 object-contain" src="/logo.png" />
           </div>
         )}
       </div>

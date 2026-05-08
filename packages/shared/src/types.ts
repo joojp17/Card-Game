@@ -58,6 +58,7 @@ export type PublicRoomState = {
   players: PlayerPublic[];
   settings: RoomSettings;
   deadlineAt: number | null;
+  serverNow: number;
   round: RoundPublic | null;
   hand: WhiteCard[];
   me: {
@@ -122,4 +123,5 @@ export type ServerToClientEvents = {
   joinedRoom: (payload: JoinRoomAck) => void;
   roomState: (payload: PublicRoomState) => void;
   gameError: (payload: GameError) => void;
+  kickedFromRoom: (payload: { roomCode: string; message: string }) => void;
 };

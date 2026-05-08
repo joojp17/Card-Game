@@ -11,9 +11,11 @@ export function App() {
   const {
     adultAccepted,
     clearError,
+    clearKickedMessage,
     createRoom,
     error,
     joinRoom,
+    kickedMessage,
     playerName,
     room,
     roomCode,
@@ -86,6 +88,15 @@ export function App() {
           >
             {error}
           </button>
+        )}
+
+        {kickedMessage && (
+          <InfoModal
+            actionLabel="Entendi"
+            onClose={clearKickedMessage}
+            text="Você voltou para a tela inicial e não poderá reconectar nessa sala pelo mesmo navegador."
+            title="Você foi kikado"
+          />
         )}
 
         {!room && screen === "home" && (
@@ -262,10 +273,12 @@ function NumberField({
   );
 }
 
-function RoundTimer({ deadlineAt, phase }: { deadlineAt: number | null; phase: string }) {
-  const [now, setNow] = useState(Date.now());
+function RoundTimer({ deadlineAt, phase, serverNow }: { deadlineAt: number | null; phase: string; serverNow: number }) {
+  const [clientNow, setClientNow] = useState(Date.now());
+  const [clockSync, setClockSync] = useState(() => ({ clientNow: Date.now(), serverNow }));
   const lastTickRef = useRef<number | null>(null);
-  const secondsLeft = deadlineAt ? Math.max(0, Math.ceil((deadlineAt - now) / 1000)) : null;
+  const estimatedServerNow = clockSync.serverNow + (clientNow - clockSync.clientNow);
+  const secondsLeft = deadlineAt ? Math.max(0, Math.ceil((deadlineAt - estimatedServerNow) / 1000)) : null;
   const isActive = phase === "submitting" || phase === "judging" || phase === "round_result";
   const label = phase === "round_result" ? "" : "Tempo: ";
 
@@ -274,9 +287,15 @@ function RoundTimer({ deadlineAt, phase }: { deadlineAt: number | null; phase: s
       return;
     }
 
-    const interval = window.setInterval(() => setNow(Date.now()), 250);
+    const interval = window.setInterval(() => setClientNow(Date.now()), 250);
     return () => window.clearInterval(interval);
   }, [deadlineAt, isActive]);
+
+  useEffect(() => {
+    const now = Date.now();
+    setClientNow(now);
+    setClockSync({ clientNow: now, serverNow });
+  }, [deadlineAt, phase, serverNow]);
 
   useEffect(() => {
     if (!isActive || secondsLeft === null || secondsLeft <= 0 || secondsLeft > 5) {
@@ -392,7 +411,6 @@ function GameRoom() {
               <PlayerRow
                 canKick={me.isHost && player.id !== me.playerId}
                 connected={player.connected}
-                hasSubmitted={player.hasSubmitted}
                 isHost={player.isHost}
                 isJudge={player.isJudge}
                 isWaiting={player.isWaiting}
@@ -411,7 +429,6 @@ function GameRoom() {
                   <PlayerRow
                     canKick={me.isHost && player.id !== me.playerId}
                     connected={player.connected}
-                    hasSubmitted={false}
                     isHost={player.isHost}
                     isJudge={false}
                     isWaiting={player.isWaiting}
@@ -468,7 +485,7 @@ function GameRoom() {
             <JewelCard text={room.round.blackCard.text} tone="black" />
             <Panel>
               <RoundStatus phase={room.phase} isJudge={me.isJudge} judgeName={judge?.name ?? "Juiz"} submitted={submitted} />
-              <RoundTimer deadlineAt={room.deadlineAt} phase={room.phase} />
+              <RoundTimer deadlineAt={room.deadlineAt} phase={room.phase} serverNow={room.serverNow} />
             </Panel>
           </div>
         )}
@@ -599,6 +616,32 @@ function ConfirmModal({
             {confirmLabel}
           </Button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function InfoModal({
+  actionLabel,
+  onClose,
+  text,
+  title
+}: {
+  actionLabel: string;
+  onClose: () => void;
+  text: string;
+  title: string;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-ink/55 p-4" role="dialog" aria-modal="true" aria-labelledby="info-title">
+      <div className="w-full max-w-md rounded-md border border-ink/10 bg-white p-5 shadow-card">
+        <h2 className="text-xl font-black" id="info-title">
+          {title}
+        </h2>
+        <p className="mt-2 text-sm font-semibold leading-relaxed text-ink/65">{text}</p>
+        <Button className="mt-5 w-full" onClick={onClose} type="button" variant="ruby">
+          {actionLabel}
+        </Button>
       </div>
     </div>
   );
