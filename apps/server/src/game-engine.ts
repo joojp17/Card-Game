@@ -340,13 +340,15 @@ export class GameEngine {
     const room = this.requireRoom(code);
     const viewer = room.players.find((player) => player.id === viewerPlayerId) ?? null;
     const revealSubmissions = room.phase === "judging" || room.phase === "round_result" || room.phase === "game_over";
+    const serverNow = Date.now();
 
     return {
       code: room.code,
       phase: room.phase,
       settings: room.settings,
       deadlineAt: room.deadlineAt,
-      serverNow: Date.now(),
+      serverNow,
+      deadlineRemainingMs: room.deadlineAt ? Math.max(0, room.deadlineAt - serverNow) : null,
       players: room.players.map((player) => ({
         id: player.id,
         name: player.name,

@@ -59,6 +59,7 @@ export type PublicRoomState = {
   settings: RoomSettings;
   deadlineAt: number | null;
   serverNow: number;
+  deadlineRemainingMs: number | null;
   round: RoundPublic | null;
   hand: WhiteCard[];
   me: {

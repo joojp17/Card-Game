@@ -273,29 +273,35 @@ function NumberField({
   );
 }
 
-function RoundTimer({ deadlineAt, phase, serverNow }: { deadlineAt: number | null; phase: string; serverNow: number }) {
+function RoundTimer({
+  deadlineRemainingMs,
+  phase
+}: {
+  deadlineRemainingMs: number | null;
+  phase: string;
+}) {
   const [clientNow, setClientNow] = useState(Date.now());
-  const [clockSync, setClockSync] = useState(() => ({ clientNow: Date.now(), serverNow }));
+  const [timerSync, setTimerSync] = useState(() => ({ clientNow: Date.now(), remainingMs: deadlineRemainingMs }));
   const lastTickRef = useRef<number | null>(null);
-  const estimatedServerNow = clockSync.serverNow + (clientNow - clockSync.clientNow);
-  const secondsLeft = deadlineAt ? Math.max(0, Math.ceil((deadlineAt - estimatedServerNow) / 1000)) : null;
+  const remainingMs = timerSync.remainingMs === null ? null : Math.max(0, timerSync.remainingMs - (clientNow - timerSync.clientNow));
+  const secondsLeft = remainingMs === null ? null : Math.ceil(remainingMs / 1000);
   const isActive = phase === "submitting" || phase === "judging" || phase === "round_result";
   const label = phase === "round_result" ? "" : "Tempo: ";
 
   useEffect(() => {
-    if (!deadlineAt || !isActive) {
+    if (deadlineRemainingMs === null || !isActive) {
       return;
     }
 
     const interval = window.setInterval(() => setClientNow(Date.now()), 250);
     return () => window.clearInterval(interval);
-  }, [deadlineAt, isActive]);
+  }, [deadlineRemainingMs, isActive]);
 
   useEffect(() => {
     const now = Date.now();
     setClientNow(now);
-    setClockSync({ clientNow: now, serverNow });
-  }, [deadlineAt, phase, serverNow]);
+    setTimerSync({ clientNow: now, remainingMs: deadlineRemainingMs });
+  }, [deadlineRemainingMs, phase]);
 
   useEffect(() => {
     if (!isActive || secondsLeft === null || secondsLeft <= 0 || secondsLeft > 5) {
@@ -310,7 +316,7 @@ function RoundTimer({ deadlineAt, phase, serverNow }: { deadlineAt: number | nul
 
   useEffect(() => {
     lastTickRef.current = null;
-  }, [deadlineAt]);
+  }, [deadlineRemainingMs]);
 
   if (!isActive || secondsLeft === null) {
     return null;
@@ -485,7 +491,7 @@ function GameRoom() {
             <JewelCard text={room.round.blackCard.text} tone="black" />
             <Panel>
               <RoundStatus phase={room.phase} isJudge={me.isJudge} judgeName={judge?.name ?? "Juiz"} submitted={submitted} />
-              <RoundTimer deadlineAt={room.deadlineAt} phase={room.phase} serverNow={room.serverNow} />
+              <RoundTimer deadlineRemainingMs={room.deadlineRemainingMs} phase={room.phase} />
             </Panel>
           </div>
         )}
