@@ -124,3 +124,41 @@ jobs:
           ssh -o ConnectTimeout=30 -o ConnectionAttempts=5 -o ServerAliveInterval=30 -o ServerAliveCountMax=10 -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" \
             "APP_DIR='$VPS_PATH' REPO_URL='$REPO_URL' RELEASE_REF='$GITHUB_SHA' IMAGE_TAG='$GITHUB_SHA' HEALTH_URL='$HEALTH_URL' IMAGE_ARCHIVE='$VPS_PATH/uploads/${GITHUB_SHA}.images.tar.gz' bash -s" \
             < scripts/deploy/remote-compose-deploy.sh
+
+      - name: Force and verify running release
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_PATH: ${{ secrets.VPS_PATH || '/opt/cards-against-jewels' }}
+          VPS_PORT: ${{ secrets.VPS_PORT || '22' }}
+        run: |
+          set -euo pipefail
+          ssh -o ConnectTimeout=30 -o ConnectionAttempts=5 -o ServerAliveInterval=30 -o ServerAliveCountMax=10 -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" \
+            "APP_DIR='$VPS_PATH' IMAGE_TAG='$GITHUB_SHA' bash -s" <<'REMOTE'
+          set -euo pipefail
+          cd "$APP_DIR"
+
+          expected_server="cards-against-jewels-server:${IMAGE_TAG}"
+          expected_web="cards-against-jewels-web:${IMAGE_TAG}"
+
+          echo "Expected server image: ${expected_server}"
+          echo "Expected web image: ${expected_web}"
+          echo "Current .env.release:"
+          cat .env.release
+
+          docker image inspect "$expected_server" "$expected_web" >/dev/null
+          docker compose --env-file .env.production --env-file .env.release -f docker-compose.prod.yml up -d --no-build --force-recreate --remove-orphans server web
+          docker compose --env-file .env.production --env-file .env.release -f docker-compose.prod.yml ps
+
+          server_container="$(docker compose --env-file .env.production --env-file .env.release -f docker-compose.prod.yml ps -q server)"
+          web_container="$(docker compose --env-file .env.production --env-file .env.release -f docker-compose.prod.yml ps -q web)"
+
+          server_image="$(docker inspect -f '{{.Config.Image}}' "$server_container")"
+          web_image="$(docker inspect -f '{{.Config.Image}}' "$web_container")"
+
+          echo "Running server image: ${server_image}"
+          echo "Running web image: ${web_image}"
+
+          test "$server_image" = "$expected_server"
+          test "$web_image" = "$expected_web"
+          REMOTE
