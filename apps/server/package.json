@@ -28,12 +28,12 @@
     "fastify": "^5.6.2",
     "prisma": "^6.19.3",
     "socket.io": "^4.8.1",
+    "tsx": "^4.20.6",
     "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/node": "^22.18.8",
     "socket.io-client": "^4.8.1",
-    "tsx": "^4.20.6",
     "typescript": "^5.9.3",
     "vitest": "^2.1.9"
   }

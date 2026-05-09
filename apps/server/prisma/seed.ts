@@ -38,9 +38,24 @@ async function main() {
       isActive: true
     }
   });
+  const otherDecks = await prisma.deck.findMany({
+    where: { slug: { not: brDeckSeed.slug } },
+    select: { id: true }
+  });
+  const deckIdsToReplace = [deck.id, ...otherDecks.map((otherDeck) => otherDeck.id)];
 
-  await prisma.blackCard.deleteMany({ where: { deckId: deck.id } });
-  await prisma.whiteCard.deleteMany({ where: { deckId: deck.id } });
+  await prisma.blackCard.deleteMany({
+    where: { deckId: { in: deckIdsToReplace } }
+  });
+  await prisma.whiteCard.deleteMany({
+    where: { deckId: { in: deckIdsToReplace } }
+  });
+  await prisma.deck.deleteMany({
+    where: {
+      id: { in: deckIdsToReplace },
+      slug: { not: brDeckSeed.slug }
+    }
+  });
 
   await prisma.blackCard.createMany({
     data: brDeckSeed.blackCards.map((card, index) => ({
