@@ -89,7 +89,7 @@ export function SubmissionStack({
 }) {
   if (cards.length === 0) {
     return (
-      <div className="flex h-full min-h-64 items-center justify-center rounded-md border border-ink bg-ink p-4 shadow-card">
+      <div className="flex h-full min-h-52 items-center justify-center rounded-md border border-ink bg-ink p-4 shadow-card">
         <div
           aria-hidden="true"
           className="h-20 w-20 bg-contain bg-center bg-no-repeat"
@@ -100,7 +100,7 @@ export function SubmissionStack({
   }
 
   return (
-    <div className={cn("flex h-full min-h-64 flex-col rounded-md border bg-white p-3 shadow-card", isWinner ? "border-amber" : "border-ink/10")}>
+    <div className={cn("flex h-full min-h-52 flex-col rounded-md border bg-white p-3 shadow-card", isWinner ? "border-amber" : "border-ink/10")}>
       <div className="grid flex-1 gap-2">
         {cards.map((card) => (
           <div className="flex min-h-28 rounded bg-stone-50 p-3 text-sm font-bold leading-snug text-ink" key={card.id}>

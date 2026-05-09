@@ -616,16 +616,7 @@ function GameRoom() {
               ))}
             </div>
           </Panel>
-        )}
-
-        {room.phase === "game_over" && (
-          <Panel className="border-amber bg-amber/10">
-            <h2 className="text-2xl font-black">Fim de jogo</h2>
-            <p className="mt-2 text-sm font-semibold text-ink/70">
-              {winner} terminou no topo do cofre.
-            </p>
-          </Panel>
-        )}
+        )}        
       </div>
       {leaveModalOpen && (
         <ConfirmModal
@@ -788,7 +779,7 @@ function GameOverModal({
                 </Button>
                 <Button onClick={onConfig} type="button" variant="pearl">
                   <Settings size={18} />
-                  Configura\u00e7\u00f5es
+                  Configurações
                 </Button>
               </>
             )}
