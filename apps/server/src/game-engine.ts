@@ -42,12 +42,16 @@ type Room = {
   submissions: Submission[];
   deadlineAt: number | null;
   timeout: ReturnType<typeof setTimeout> | null;
+  cleanupTimeout: ReturnType<typeof setTimeout> | null;
   result: {
     winnerPlayerId: string;
     winnerName: string;
     cards: WhiteCard[];
   } | null;
 };
+
+const LOBBY_IDLE_CLEANUP_MS = 30 * 60 * 1000;
+const FINISHED_ROOM_CLEANUP_MS = 30 * 60 * 1000;
 
 export type JoinResult = {
   playerId: string;
@@ -97,8 +101,11 @@ export class GameEngine {
       submissions: [],
       deadlineAt: null,
       timeout: null,
+      cleanupTimeout: null,
       result: null
     });
+
+    this.scheduleRoomCleanup(this.requireRoom(code), LOBBY_IDLE_CLEANUP_MS);
 
     return { code };
   }
@@ -128,6 +135,7 @@ export class GameEngine {
     }
 
     if (returningPlayer) {
+      this.clearRoomCleanup(room);
       returningPlayer.name = name;
       returningPlayer.connected = true;
 
@@ -157,6 +165,7 @@ export class GameEngine {
     };
 
     room.players.push(player);
+    this.clearRoomCleanup(room);
 
     if (!room.hostPlayerId) {
       room.hostPlayerId = player.id;
@@ -179,6 +188,10 @@ export class GameEngine {
 
     player.connected = false;
     this.advanceSubmittingIfReady(room);
+
+    if (room.phase === "lobby" && room.players.every((candidate) => !candidate.connected)) {
+      this.scheduleRoomCleanup(room, LOBBY_IDLE_CLEANUP_MS);
+    }
   }
 
   startGame(code: string, actorId: string): void {
@@ -279,10 +292,10 @@ export class GameEngine {
       winnerName: winner.name,
       cards: submission.cards
     };
-    room.phase = winner.score >= room.settings.pointsToWin ? "game_over" : "round_result";
-    if (room.phase === "game_over") {
-      this.clearPhaseTimeout(room);
+    if (winner.score >= room.settings.pointsToWin) {
+      this.finishGame(room);
     } else {
+      room.phase = "round_result";
       this.schedulePhaseTimeout(room);
     }
   }
@@ -322,8 +335,7 @@ export class GameEngine {
     room.submissions = room.submissions.filter((submission) => submission.playerId !== target.id);
 
     if (this.getActivePlayerCount(room) < room.settings.minPlayers && room.phase !== "lobby") {
-      room.phase = "game_over";
-      this.clearPhaseTimeout(room);
+      this.finishGame(room);
       return kicked;
     }
 
@@ -436,8 +448,7 @@ export class GameEngine {
     });
 
     if (room.players.filter((player) => player.connected && !player.isWaiting).length < room.settings.minPlayers) {
-      room.phase = "game_over";
-      this.clearPhaseTimeout(room);
+      this.finishGame(room);
       return;
     }
 
@@ -509,6 +520,30 @@ export class GameEngine {
 
     room.timeout = null;
     room.deadlineAt = null;
+  }
+
+  private finishGame(room: Room): void {
+    room.phase = "game_over";
+    this.clearPhaseTimeout(room);
+    this.scheduleRoomCleanup(room, FINISHED_ROOM_CLEANUP_MS);
+  }
+
+  private scheduleRoomCleanup(room: Room, timeoutMs: number): void {
+    this.clearRoomCleanup(room);
+
+    room.cleanupTimeout = setTimeout(() => {
+      this.clearPhaseTimeout(room);
+      this.rooms.delete(room.code);
+    }, timeoutMs);
+    room.cleanupTimeout.unref?.();
+  }
+
+  private clearRoomCleanup(room: Room): void {
+    if (room.cleanupTimeout) {
+      clearTimeout(room.cleanupTimeout);
+    }
+
+    room.cleanupTimeout = null;
   }
 
   private getNextJudgeId(room: Room): string {

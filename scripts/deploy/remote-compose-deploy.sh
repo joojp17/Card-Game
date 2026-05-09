@@ -9,6 +9,8 @@ HEALTH_URL="${HEALTH_URL:-}"
 IMAGE_TAG="${IMAGE_TAG:-$RELEASE_REF}"
 IMAGE_TAG="${IMAGE_TAG//\//-}"
 IMAGE_ARCHIVE="${IMAGE_ARCHIVE:-}"
+CLEANUP_RETAIN_IMAGES="${CLEANUP_RETAIN_IMAGES:-5}"
+CLEANUP_ARCHIVE_DAYS="${CLEANUP_ARCHIVE_DAYS:-14}"
 PREVIOUS_REF=""
 PREVIOUS_RELEASE_ENV=""
 
@@ -98,6 +100,41 @@ assert_running_image() {
   fi
 }
 
+cleanup_old_images() {
+  local repository="$1"
+  local retain="$2"
+  local count=0
+  local image
+
+  while IFS= read -r image; do
+    if [ -z "$image" ] || [ "${image##*:}" = "<none>" ]; then
+      continue
+    fi
+
+    count=$((count + 1))
+
+    if [ "$count" -le "$retain" ]; then
+      continue
+    fi
+
+    docker image rm "$image" >/dev/null 2>&1 || true
+  done < <(docker image ls "$repository" --format '{{.Repository}}:{{.Tag}}')
+}
+
+cleanup_deploy_artifacts() {
+  if [ -n "$IMAGE_ARCHIVE" ]; then
+    rm -f "$IMAGE_ARCHIVE" || true
+  fi
+
+  if [ -d "$APP_DIR/uploads" ]; then
+    find "$APP_DIR/uploads" -type f -name '*.images.tar.gz' -mtime +"$CLEANUP_ARCHIVE_DAYS" -delete || true
+  fi
+
+  cleanup_old_images "cards-against-jewels-server" "$CLEANUP_RETAIN_IMAGES"
+  cleanup_old_images "cards-against-jewels-web" "$CLEANUP_RETAIN_IMAGES"
+  docker image prune -f >/dev/null 2>&1 || true
+}
+
 rollback() {
   trap - ERR
   set +e
@@ -114,7 +151,7 @@ rollback() {
       rm -f .env.release
     fi
 
-    compose up -d --force-recreate server web
+    compose up -d --no-build --force-recreate --remove-orphans server web
     wait_for_services 240 server web || true
     compose ps
   fi
@@ -160,6 +197,8 @@ if [ -n "$IMAGE_ARCHIVE" ]; then
 fi
 
 docker image inspect "$SERVER_IMAGE" "$WEB_IMAGE" >/dev/null
+echo "Deploying server image: $SERVER_IMAGE"
+echo "Deploying web image: $WEB_IMAGE"
 
 compose up -d postgres
 wait_for_services 180 postgres
@@ -168,7 +207,7 @@ wait_for_services 180 postgres
 # the previous app version, or use an explicit database rollback strategy.
 compose run --rm server npm run db:deploy --workspace @cards-against-jewels/server
 
-compose up -d --force-recreate server web
+compose up -d --no-build --force-recreate --remove-orphans server web
 wait_for_services 240 server web
 
 assert_running_image server "$SERVER_IMAGE"
@@ -177,6 +216,7 @@ assert_running_image web "$WEB_IMAGE"
 if [ -n "$HEALTH_URL" ]; then
   for attempt in {1..30}; do
     if curl -fsS "$HEALTH_URL" >/dev/null; then
+      cleanup_deploy_artifacts
       trap - ERR
       echo "Deploy succeeded."
       exit 0
@@ -189,5 +229,6 @@ if [ -n "$HEALTH_URL" ]; then
   false
 fi
 
+cleanup_deploy_artifacts
 trap - ERR
 echo "Deploy succeeded without external health check."

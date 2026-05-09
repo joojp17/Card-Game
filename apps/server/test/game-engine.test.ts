@@ -166,4 +166,38 @@ describe("GameEngine", () => {
     expect(rejoined.room.me?.name).toBe("Ruby Again");
     expect(rejoined.room.players[0].connected).toBe(true);
   });
+
+  it("cleans up abandoned lobby rooms", () => {
+    vi.useFakeTimers();
+    const game = new GameEngine();
+    const { code } = game.createRoom();
+
+    expect(game.getRoomSummary(code).exists).toBe(true);
+
+    vi.advanceTimersByTime(30 * 60 * 1000);
+
+    expect(game.getRoomSummary(code).exists).toBe(false);
+  });
+
+  it("cleans up finished rooms after the retention window", () => {
+    vi.useFakeTimers();
+    const game = new GameEngine();
+    const { code } = game.createRoom({ pointsToWin: 1 });
+    const players = joinPlayers(game, code, 3);
+
+    game.startGame(code, players[0].playerId);
+    let state = game.getPublicRoom(code, players[1].playerId);
+    game.submitCards(code, players[1].playerId, [state.hand[0].id]);
+    state = game.getPublicRoom(code, players[2].playerId);
+    game.submitCards(code, players[2].playerId, [state.hand[0].id]);
+
+    const judgeState = game.getPublicRoom(code, players[0].playerId);
+    game.chooseWinner(code, players[0].playerId, judgeState.round!.submissions[0].id);
+
+    expect(game.getRoomSummary(code).phase).toBe("game_over");
+
+    vi.advanceTimersByTime(30 * 60 * 1000);
+
+    expect(game.getRoomSummary(code).exists).toBe(false);
+  });
 });
