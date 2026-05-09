@@ -15,6 +15,7 @@ type GameStore = {
   adultAccepted: boolean;
   createRoom: (settings: CreateRoomPayload) => Promise<string>;
   joinRoom: (roomCode: string, playerName: string) => void;
+  restoreSession: () => void;
   startGame: () => void;
   restartGame: (settings?: CreateRoomPayload) => void;
   submitCard: (cardIds: string[]) => void;
@@ -35,7 +36,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   socket: null,
   connected: false,
   room: null,
-  roomCode: "",
+  roomCode: localStorage.getItem("caj:lastRoom") ?? "",
   playerName: localStorage.getItem("caj:lastName") ?? "",
   error: null,
   kickedMessage: null,
@@ -72,6 +73,23 @@ export const useGameStore = create<GameStore>((set, get) => ({
     });
   },
 
+  restoreSession: () => {
+    const code = localStorage.getItem("caj:lastRoom")?.trim().toUpperCase();
+    const name = localStorage.getItem("caj:lastName")?.trim();
+
+    if (!code || !name || !localStorage.getItem(tokenKey(code)) || get().room) {
+      return;
+    }
+
+    const socket = ensureSocket(get, set);
+    set({ roomCode: code, playerName: name, error: null });
+    socket.emit("joinRoom", {
+      roomCode: code,
+      playerName: name,
+      playerToken: localStorage.getItem(tokenKey(code)) ?? undefined
+    });
+  },
+
   startGame: () => get().socket?.emit("startGame"),
   restartGame: (settings) => get().socket?.emit("restartGame", settings ? { settings } : {}),
   submitCard: (cardIds) => get().socket?.emit("submitCards", { cardIds }),
@@ -79,7 +97,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
   nextRound: () => get().socket?.emit("nextRound"),
   kickPlayer: (playerId) => get().socket?.emit("kickPlayer", { playerId }),
   leaveRoom: () => {
+    const code = get().room?.code ?? get().roomCode;
     get().socket?.emit("leaveRoom");
+    if (code) {
+      localStorage.removeItem("caj:lastRoom");
+    }
     set({ room: null, roomCode: "", error: null });
   },
   setAdultAccepted: (accepted) => {
@@ -108,11 +130,16 @@ function ensureSocket(get: () => GameStore, set: (state: Partial<GameStore>) => 
   socket.on("disconnect", () => set({ connected: false }));
   socket.on("joinedRoom", ({ playerToken, room }) => {
     localStorage.setItem(tokenKey(room.code), playerToken);
+    localStorage.setItem("caj:lastRoom", room.code);
     set({ room, roomCode: room.code, error: null });
   });
   socket.on("roomState", (room) => set({ room }));
   socket.on("gameError", (error) => set({ error: error.message }));
   socket.on("kickedFromRoom", ({ message }) => {
+    const code = get().room?.code ?? get().roomCode;
+    if (code) {
+      localStorage.removeItem("caj:lastRoom");
+    }
     set({ kickedMessage: message, room: null, roomCode: "", error: null });
   });
 

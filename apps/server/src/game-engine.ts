@@ -233,7 +233,7 @@ export class GameEngine {
     this.requireHost(room, actorId);
 
     if (room.phase !== "game_over") {
-      throw new GameEngineError("INVALID_MOVE", "A partida atual ainda n\u00e3o terminou.");
+      throw new GameEngineError("INVALID_MOVE", "A partida atual ainda não terminou.");
     }
 
     const nextSettings = {
@@ -513,10 +513,10 @@ export class GameEngine {
         room.phase = "judging";
         this.schedulePhaseTimeout(room);
       } else {
-        this.finishRoundWithoutWinner(room, "Ningu\u00e9m ganhou a rodada: o tempo acabou e ningu\u00e9m jogou uma carta.");
+        this.finishRoundWithoutWinner(room, "Ninguém ganhou a rodada: o tempo acabou e ninguém jogou uma carta.");
       }
     } else if (room.phase === "judging") {
-      this.finishRoundWithoutWinner(room, "Ningu\u00e9m ganhou a rodada: o tempo acabou e o juiz n\u00e3o escolheu uma carta.");
+      this.finishRoundWithoutWinner(room, "Ninguém ganhou a rodada: o tempo acabou e o juiz não escolheu uma carta.");
     } else if (room.phase === "round_result") {
       this.startNextRound(room);
     }

@@ -110,13 +110,11 @@ export function SubmissionStack({
       </div>
       <div className="mt-3 min-h-14">
         {isMine && <div className="mb-2 text-xs font-black uppercase tracking-normal text-emerald">sua carta</div>}
-        {canChoose ? (
+        {canChoose ?? (
           <Button className="h-11 w-full" onClick={onChoose} type="button" variant="ruby">
             <Check size={16} />
             Escolher
           </Button>
-        ) : (
-          <div className="h-11" />
         )}
         {isWinner && <div className="mt-2 text-xs font-black uppercase tracking-normal text-amber">resposta vencedora</div>}
       </div>

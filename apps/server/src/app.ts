@@ -122,7 +122,7 @@ export function buildApp(options: { game?: GameEngine; cardCatalog?: CardCatalog
       const parsed = restartGameSchema.safeParse(payload);
 
       if (!parsed.success) {
-        socket.emit("gameError", { code: "BAD_PAYLOAD", message: "Configura\u00e7\u00e3o inv\u00e1lida." });
+        socket.emit("gameError", { code: "BAD_PAYLOAD", message: "Configuração inválida." });
         return;
       }
 

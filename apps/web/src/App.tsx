@@ -17,6 +17,7 @@ export function App() {
     joinRoom,
     kickedMessage,
     playerName,
+    restoreSession,
     room,
     roomCode,
     setAdultAccepted,
@@ -31,7 +32,8 @@ export function App() {
 
   useEffect(() => {
     initializeDiscordSdk().catch(() => undefined);
-  }, []);
+    restoreSession();
+  }, [restoreSession]);
 
   useEffect(() => {
     if (!room) {
@@ -94,7 +96,7 @@ export function App() {
           <InfoModal
             actionLabel="Entendi"
             onClose={clearKickedMessage}
-            text="Você voltou para a tela inicial e não poderá reconectar nessa sala pelo mesmo navegador."
+            text="Você foi moggado, betinha."
             title="Você foi kikado"
           />
         )}
@@ -277,13 +279,11 @@ function RoundTimer({
   deadlineAt,
   deadlineRemainingMs,
   phase,
-  skippedReason,
   syncKey
 }: {
   deadlineAt: number | null;
   deadlineRemainingMs: number | null;
   phase: string;
-  skippedReason?: string | null;
   syncKey: string;
 }) {
   const [clientNow, setClientNow] = useState(Date.now());
@@ -293,7 +293,7 @@ function RoundTimer({
   const secondsLeft = remainingMs === null ? null : Math.ceil(remainingMs / 1000);
   const isActive = phase === "submitting" || phase === "judging" || phase === "round_result";
   const isRoundResult = phase === "round_result";
-  const label = isRoundResult ? "Pr\u00f3xima rodada em " : "Tempo: ";
+  const label = isRoundResult ? "Próxima rodada em " : "Tempo: ";
 
   useEffect(() => {
     if (deadlineRemainingMs === null || !isActive) {
@@ -338,7 +338,6 @@ function RoundTimer({
     >
       <Clock size={16} />
       <span>
-        {skippedReason && <>{skippedReason} </>}
         {label}
         {secondsLeft}s
       </span>
@@ -532,12 +531,17 @@ function GameRoom() {
           <div className="grid gap-5 xl:grid-cols-[minmax(260px,0.42fr)_minmax(0,1fr)]">
             <JewelCard text={room.round.blackCard.text} tone="black" />
             <Panel>
-              <RoundStatus phase={room.phase} isJudge={me.isJudge} judgeName={judge?.name ?? "Juiz"} submitted={submitted} />
+              <RoundStatus
+                phase={room.phase}
+                isJudge={me.isJudge}
+                judgeName={judge?.name ?? "Juiz"}
+                skippedReason={room.round.skippedReason}
+                submitted={submitted}
+              />
               <RoundTimer
                 deadlineAt={room.deadlineAt}
                 deadlineRemainingMs={room.deadlineRemainingMs}
                 phase={room.phase}
-                skippedReason={room.round.skippedReason}
                 syncKey={`${room.phase}:${room.round.number}:${room.deadlineAt ?? "none"}`}
               />
             </Panel>
@@ -561,7 +565,6 @@ function GameRoom() {
             {room.round.result && (
               <p className="mb-4 text-sm font-semibold text-ink/65">{room.round.result.winnerName} levou a rodada.</p>
             )}
-            {room.round.skippedReason && <p className="mb-4 text-sm font-semibold text-ink/65">{room.round.skippedReason}</p>}
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
               {room.round.submissions.map((submission) => (
                 <SubmissionStack
@@ -754,7 +757,7 @@ function GameOverModal({
           <div className="mb-5 grid gap-4 sm:grid-cols-3">
             <NumberField label="Tamanho" max={10} min={3} onChange={setRoomSize} value={roomSize} />
             <NumberField label="Timer" max={120} min={30} onChange={setTimerSeconds} suffix="s" value={timerSeconds} />
-            <NumberField label="Pontua\u00e7\u00e3o" max={30} min={5} onChange={setPointsToWin} value={pointsToWin} />
+            <NumberField label="Pontuação" max={30} min={5} onChange={setPointsToWin} value={pointsToWin} />
           </div>
         )}
 
@@ -838,22 +841,25 @@ function RoundStatus({
   phase,
   isJudge,
   judgeName,
+  skippedReason,
   submitted
 }: {
   phase: string;
   isJudge: boolean;
   judgeName: string;
+  skippedReason?: string | null;
   submitted: boolean;
 }) {
   const copy = useMemo(() => {
-    if (phase === "submitting" && isJudge) return "Você é o juiz. Aguarde as respostas anônimas.";
+    if (phase === "submitting" && isJudge) return "Você é o juiz. Aguarde as respostas.";
     if (phase === "submitting" && submitted) return "Carta enviada. As outras ficam viradas até o julgamento.";
     if (phase === "submitting") return "Escolha uma carta da sua mão.";
     if (phase === "judging" && isJudge) return "Escolha a resposta que merece a joia da vergonha.";
     if (phase === "judging") return `${judgeName} está julgando as respostas.`;
+    if (phase === "round_result" && skippedReason) return skippedReason;
     if (phase === "round_result") return "Resultado da rodada.";
     return "A partida terminou.";
-  }, [isJudge, judgeName, phase, submitted]);
+  }, [isJudge, judgeName, phase, skippedReason, submitted]);
 
   return <p className="text-lg font-black leading-snug text-ink">{copy}</p>;
 }
