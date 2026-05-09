@@ -16,6 +16,7 @@ type GameStore = {
   createRoom: (settings: CreateRoomPayload) => Promise<string>;
   joinRoom: (roomCode: string, playerName: string) => void;
   startGame: () => void;
+  restartGame: (settings?: CreateRoomPayload) => void;
   submitCard: (cardIds: string[]) => void;
   chooseWinner: (submissionId: string) => void;
   nextRound: () => void;
@@ -72,6 +73,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
 
   startGame: () => get().socket?.emit("startGame"),
+  restartGame: (settings) => get().socket?.emit("restartGame", settings ? { settings } : {}),
   submitCard: (cardIds) => get().socket?.emit("submitCards", { cardIds }),
   chooseWinner: (submissionId) => get().socket?.emit("chooseWinner", { submissionId }),
   nextRound: () => get().socket?.emit("nextRound"),

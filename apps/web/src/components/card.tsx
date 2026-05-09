@@ -87,24 +87,26 @@ export function SubmissionStack({
   canChoose: boolean;
   onChoose: () => void;
 }) {
+  if (cards.length === 0) {
+    return (
+      <div className="flex h-full min-h-64 items-center justify-center rounded-md border border-ink bg-ink p-4 shadow-card">
+        <div
+          aria-hidden="true"
+          className="h-20 w-20 bg-contain bg-center bg-no-repeat"
+          style={{ backgroundImage: "url('/logo.png')" }}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className={cn("flex h-full min-h-64 flex-col rounded-md border bg-white p-3 shadow-card", isWinner ? "border-amber" : "border-ink/10")}>
       <div className="grid flex-1 gap-2">
-        {cards.length > 0 ? (
-          cards.map((card) => (
-            <div className="flex min-h-28 rounded bg-stone-50 p-3 text-sm font-bold leading-snug text-ink" key={card.id}>
-              {card.text}
-            </div>
-          ))
-        ) : (
-          <div className="flex min-h-28 items-center justify-center rounded bg-ink p-3">
-            <div
-              aria-hidden="true"
-              className="h-14 w-14 bg-contain bg-center bg-no-repeat"
-              style={{ backgroundImage: "url('/logo.png')" }}
-            />
+        {cards.map((card) => (
+          <div className="flex min-h-28 rounded bg-stone-50 p-3 text-sm font-bold leading-snug text-ink" key={card.id}>
+            {card.text}
           </div>
-        )}
+        ))}
       </div>
       <div className="mt-3 min-h-14">
         {isMine && <div className="mb-2 text-xs font-black uppercase tracking-normal text-emerald">sua carta</div>}

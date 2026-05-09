@@ -6,6 +6,10 @@ export const createRoomSchema = z.object({
   pointsToWin: z.coerce.number().int().min(5).max(30).default(5)
 });
 
+export const restartGameSchema = z.object({
+  settings: createRoomSchema.optional()
+});
+
 export const joinRoomSchema = z.object({
   roomCode: z.string().trim().min(3).max(12),
   playerName: z.string().trim().min(1).max(24),

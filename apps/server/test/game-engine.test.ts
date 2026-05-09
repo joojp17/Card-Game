@@ -91,6 +91,48 @@ describe("GameEngine", () => {
     expect(nextState.round?.number).toBe(2);
   });
 
+  it("ends a round without a winner when nobody submits before time expires", () => {
+    vi.useFakeTimers();
+    const game = new GameEngine();
+    const { code } = game.createRoom({ timerSeconds: 30 });
+    const players = joinPlayers(game, code, 3);
+
+    game.startGame(code, players[0].playerId);
+    vi.advanceTimersByTime(30025);
+
+    const resultState = game.getPublicRoom(code, players[0].playerId);
+    expect(resultState.phase).toBe("round_result");
+    expect(resultState.round?.result).toBeNull();
+    expect(resultState.round?.skippedReason).toMatch(/ningu/i);
+
+    vi.advanceTimersByTime(5025);
+
+    expect(game.getPublicRoom(code, players[0].playerId).round?.number).toBe(2);
+  });
+
+  it("ends a judging round without a winner when the judge does not choose in time", () => {
+    vi.useFakeTimers();
+    const game = new GameEngine();
+    const { code } = game.createRoom({ timerSeconds: 30 });
+    const players = joinPlayers(game, code, 3);
+
+    game.startGame(code, players[0].playerId);
+    let state = game.getPublicRoom(code, players[1].playerId);
+    game.submitCards(code, players[1].playerId, [state.hand[0].id]);
+    state = game.getPublicRoom(code, players[2].playerId);
+    game.submitCards(code, players[2].playerId, [state.hand[0].id]);
+
+    expect(game.getPublicRoom(code, players[0].playerId).phase).toBe("judging");
+
+    vi.advanceTimersByTime(30025);
+
+    const resultState = game.getPublicRoom(code, players[0].playerId);
+    expect(resultState.phase).toBe("round_result");
+    expect(resultState.round?.result).toBeNull();
+    expect(resultState.round?.skippedReason).toMatch(/juiz/i);
+    expect(resultState.players.every((player) => player.score === 0)).toBe(true);
+  });
+
   it("puts late joiners in a waiting queue until the next round", () => {
     vi.useFakeTimers();
     const game = new GameEngine();
@@ -165,6 +207,30 @@ describe("GameEngine", () => {
     expect(rejoined.playerId).toBe(player.playerId);
     expect(rejoined.room.me?.name).toBe("Ruby Again");
     expect(rejoined.room.players[0].connected).toBe(true);
+  });
+
+  it("lets the host restart a finished game with new settings", () => {
+    const game = new GameEngine();
+    const { code } = game.createRoom({ pointsToWin: 1 });
+    const players = joinPlayers(game, code, 3);
+
+    game.startGame(code, players[0].playerId);
+    let state = game.getPublicRoom(code, players[1].playerId);
+    game.submitCards(code, players[1].playerId, [state.hand[0].id]);
+    state = game.getPublicRoom(code, players[2].playerId);
+    game.submitCards(code, players[2].playerId, [state.hand[0].id]);
+    const judgeState = game.getPublicRoom(code, players[0].playerId);
+    game.chooseWinner(code, players[0].playerId, judgeState.round!.submissions[0].id);
+
+    expect(game.getPublicRoom(code, players[0].playerId).phase).toBe("game_over");
+
+    game.restartGame(code, players[0].playerId, { timerSeconds: 45, pointsToWin: 7 });
+
+    const restarted = game.getPublicRoom(code, players[0].playerId);
+    expect(restarted.phase).toBe("submitting");
+    expect(restarted.settings.timerSeconds).toBe(45);
+    expect(restarted.settings.pointsToWin).toBe(7);
+    expect(restarted.players.every((player) => player.score === 0)).toBe(true);
   });
 
   it("cleans up abandoned lobby rooms", () => {

@@ -6,6 +6,7 @@ import {
   createRoomSchema,
   kickPlayerSchema,
   joinRoomSchema,
+  restartGameSchema,
   submitCardsSchema,
   type ClientToServerEvents,
   type CreateRoomResponse,
@@ -111,6 +112,23 @@ export function buildApp(options: { game?: GameEngine; cardCatalog?: CardCatalog
       try {
         const { roomCode, playerId } = requireSocketRoom();
         game.startGame(roomCode, playerId);
+        await emitRoom(roomCode);
+      } catch (error) {
+        sendGameError(error);
+      }
+    });
+
+    socket.on("restartGame", async (payload = {}) => {
+      const parsed = restartGameSchema.safeParse(payload);
+
+      if (!parsed.success) {
+        socket.emit("gameError", { code: "BAD_PAYLOAD", message: "Configura\u00e7\u00e3o inv\u00e1lida." });
+        return;
+      }
+
+      try {
+        const { roomCode, playerId } = requireSocketRoom();
+        game.restartGame(roomCode, playerId, parsed.data.settings);
         await emitRoom(roomCode);
       } catch (error) {
         sendGameError(error);

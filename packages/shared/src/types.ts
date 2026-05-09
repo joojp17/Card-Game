@@ -42,6 +42,7 @@ export type RoundPublic = {
   blackCard: BlackCard;
   submissions: SubmissionPublic[];
   result: RoundResultPublic | null;
+  skippedReason: string | null;
 };
 
 export type RoomSettings = {
@@ -113,6 +114,7 @@ export type GameError = {
 export type ClientToServerEvents = {
   joinRoom: (payload: { roomCode: string; playerName: string; playerToken?: string }) => void;
   startGame: () => void;
+  restartGame: (payload?: { settings?: CreateRoomPayload }) => void;
   submitCards: (payload: { cardIds: string[] }) => void;
   chooseWinner: (payload: { submissionId: string }) => void;
   nextRound: () => void;

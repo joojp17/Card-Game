@@ -1,4 +1,4 @@
-type SoundName = "tick" | "win" | "newRound" | "judge";
+type SoundName = "tick" | "win" | "newRound" | "judge" | "gameOver";
 
 let audioContext: AudioContext | null = null;
 
@@ -26,6 +26,11 @@ export function playSound(name: SoundName) {
 
   if (name === "newRound") {
     playMelody(context, [523, 659, 784], 0.1, "sine", 0.05);
+    return;
+  }
+
+  if (name === "gameOver") {
+    playMelody(context, [523, 659, 784, 1047, 1319, 1047], 0.12, "triangle", 0.07);
     return;
   }
 

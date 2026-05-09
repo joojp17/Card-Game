@@ -40,6 +40,7 @@ type Room = {
   judgeId: string | null;
   blackCard: BlackCard | null;
   submissions: Submission[];
+  skippedReason: string | null;
   deadlineAt: number | null;
   timeout: ReturnType<typeof setTimeout> | null;
   cleanupTimeout: ReturnType<typeof setTimeout> | null;
@@ -99,6 +100,7 @@ export class GameEngine {
       judgeId: null,
       blackCard: null,
       submissions: [],
+      skippedReason: null,
       deadlineAt: null,
       timeout: null,
       cleanupTimeout: null,
@@ -211,6 +213,7 @@ export class GameEngine {
     room.whiteDeck = shuffle([...this.cardCatalog.whiteCards]);
     room.roundNumber = 1;
     room.result = null;
+    room.skippedReason = null;
     room.submissions = [];
     room.players.forEach((player) => {
       player.score = 0;
@@ -222,6 +225,32 @@ export class GameEngine {
     room.blackCard = this.drawBlack(room);
     room.phase = "submitting";
     this.schedulePhaseTimeout(room);
+  }
+
+  restartGame(code: string, actorId: string, settings: Partial<CreateRoomPayload> = {}): void {
+    const room = this.requireRoom(code);
+
+    this.requireHost(room, actorId);
+
+    if (room.phase !== "game_over") {
+      throw new GameEngineError("INVALID_MOVE", "A partida atual ainda n\u00e3o terminou.");
+    }
+
+    const nextSettings = {
+      ...room.settings,
+      maxPlayers: settings.maxPlayers ?? room.settings.maxPlayers,
+      timerSeconds: settings.timerSeconds ?? room.settings.timerSeconds,
+      pointsToWin: settings.pointsToWin ?? room.settings.pointsToWin
+    };
+
+    if (this.getActivePlayerCount(room) < nextSettings.minPlayers) {
+      throw new GameEngineError("NOT_ENOUGH_PLAYERS", `A sala precisa de pelo menos ${nextSettings.minPlayers} jogadores.`);
+    }
+
+    room.settings = nextSettings;
+    this.clearRoomCleanup(room);
+    room.phase = "lobby";
+    this.startGame(code, actorId);
   }
 
   submitCards(code: string, actorId: string, cardIds: string[]): void {
@@ -292,6 +321,7 @@ export class GameEngine {
       winnerName: winner.name,
       cards: submission.cards
     };
+    room.skippedReason = null;
     if (winner.score >= room.settings.pointsToWin) {
       this.finishGame(room);
     } else {
@@ -384,7 +414,8 @@ export class GameEngine {
                 isMine: submission.playerId === viewerPlayerId,
                 isWinner: room.result?.winnerPlayerId === submission.playerId
               })),
-              result: room.result
+              result: room.result,
+              skippedReason: room.skippedReason
             }
           : null,
       hand: viewer && !viewer.isWaiting ? viewer.hand : [],
@@ -455,6 +486,7 @@ export class GameEngine {
     room.players.forEach((player) => this.drawToHand(room, player));
     room.submissions = [];
     room.result = null;
+    room.skippedReason = null;
     room.roundNumber += 1;
     room.judgeId = this.getNextJudgeId(room);
     room.blackCard = this.drawBlack(room);
@@ -481,14 +513,10 @@ export class GameEngine {
         room.phase = "judging";
         this.schedulePhaseTimeout(room);
       } else {
-        this.startNextRound(room);
+        this.finishRoundWithoutWinner(room, "Ningu\u00e9m ganhou a rodada: o tempo acabou e ningu\u00e9m jogou uma carta.");
       }
     } else if (room.phase === "judging") {
-      const submission = room.submissions[Math.floor(Math.random() * room.submissions.length)];
-
-      if (submission && room.judgeId) {
-        this.chooseWinner(room.code, room.judgeId, submission.id);
-      }
+      this.finishRoundWithoutWinner(room, "Ningu\u00e9m ganhou a rodada: o tempo acabou e o juiz n\u00e3o escolheu uma carta.");
     } else if (room.phase === "round_result") {
       this.startNextRound(room);
     }
@@ -526,6 +554,13 @@ export class GameEngine {
     room.phase = "game_over";
     this.clearPhaseTimeout(room);
     this.scheduleRoomCleanup(room, FINISHED_ROOM_CLEANUP_MS);
+  }
+
+  private finishRoundWithoutWinner(room: Room, reason: string): void {
+    room.result = null;
+    room.skippedReason = reason;
+    room.phase = "round_result";
+    this.schedulePhaseTimeout(room);
   }
 
   private scheduleRoomCleanup(room: Room, timeoutMs: number): void {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ArrowLeft, Check, Clock, Copy, Gem, LogIn, Play, Plus, Settings, ShieldAlert, Users } from "lucide-react";
+import { ArrowLeft, Check, Clock, Copy, Gem, LogIn, Play, Plus, Settings, ShieldAlert, Trophy, Users } from "lucide-react";
 import { initializeDiscordSdk } from "./lib/discord";
 import { playSound, unlockAudio } from "./lib/audio";
 import { Button } from "./components/ui/button";
@@ -274,11 +274,17 @@ function NumberField({
 }
 
 function RoundTimer({
+  deadlineAt,
   deadlineRemainingMs,
-  phase
+  phase,
+  skippedReason,
+  syncKey
 }: {
+  deadlineAt: number | null;
   deadlineRemainingMs: number | null;
   phase: string;
+  skippedReason?: string | null;
+  syncKey: string;
 }) {
   const [clientNow, setClientNow] = useState(Date.now());
   const [timerSync, setTimerSync] = useState(() => ({ clientNow: Date.now(), remainingMs: deadlineRemainingMs }));
@@ -286,7 +292,8 @@ function RoundTimer({
   const remainingMs = timerSync.remainingMs === null ? null : Math.max(0, timerSync.remainingMs - (clientNow - timerSync.clientNow));
   const secondsLeft = remainingMs === null ? null : Math.ceil(remainingMs / 1000);
   const isActive = phase === "submitting" || phase === "judging" || phase === "round_result";
-  const label = phase === "round_result" ? "" : "Tempo: ";
+  const isRoundResult = phase === "round_result";
+  const label = isRoundResult ? "Pr\u00f3xima rodada em " : "Tempo: ";
 
   useEffect(() => {
     if (deadlineRemainingMs === null || !isActive) {
@@ -301,10 +308,10 @@ function RoundTimer({
     const now = Date.now();
     setClientNow(now);
     setTimerSync({ clientNow: now, remainingMs: deadlineRemainingMs });
-  }, [deadlineRemainingMs, phase]);
+  }, [deadlineAt, deadlineRemainingMs, phase, syncKey]);
 
   useEffect(() => {
-    if (!isActive || secondsLeft === null || secondsLeft <= 0 || secondsLeft > 5) {
+    if (!isActive || isRoundResult || secondsLeft === null || secondsLeft <= 0 || secondsLeft > 5) {
       return;
     }
 
@@ -312,11 +319,11 @@ function RoundTimer({
       playSound("tick");
       lastTickRef.current = secondsLeft;
     }
-  }, [isActive, secondsLeft]);
+  }, [isActive, isRoundResult, secondsLeft]);
 
   useEffect(() => {
     lastTickRef.current = null;
-  }, [deadlineRemainingMs]);
+  }, [syncKey]);
 
   if (!isActive || secondsLeft === null) {
     return null;
@@ -326,23 +333,32 @@ function RoundTimer({
     <div
       className={cn(
         "mt-4 inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-black",
-        secondsLeft <= 5 ? "border-ruby/30 bg-ruby/10 text-ruby" : "border-ink/10 bg-stone-50 text-ink/70"
+        !isRoundResult && secondsLeft <= 5 ? "border-ruby/30 bg-ruby/10 text-ruby" : "border-ink/10 bg-stone-50 text-ink/70"
       )}
     >
       <Clock size={16} />
-      {label}
-      {secondsLeft}s
+      <span>
+        {skippedReason && <>{skippedReason} </>}
+        {label}
+        {secondsLeft}s
+      </span>
     </div>
   );
 }
 
 function GameRoom() {
-  const { chooseWinner, kickPlayer, leaveRoom, room, startGame, submitCard } = useGameStore();
+  const { chooseWinner, kickPlayer, leaveRoom, restartGame, room, startGame, submitCard } = useGameStore();
   const [selectedCardIds, setSelectedCardIds] = useState<string[]>([]);
   const [leaveModalOpen, setLeaveModalOpen] = useState(false);
+  const [gameOverModalOpen, setGameOverModalOpen] = useState(false);
+  const [restartSettingsOpen, setRestartSettingsOpen] = useState(false);
+  const [restartRoomSize, setRestartRoomSize] = useState(10);
+  const [restartTimerSeconds, setRestartTimerSeconds] = useState(60);
+  const [restartPointsToWin, setRestartPointsToWin] = useState(5);
   const previousRoundRef = useRef<number | null>(null);
   const previousJudgeRef = useRef<string | null>(null);
   const previousResultRef = useRef<string | null>(null);
+  const previousGameOverRef = useRef<string | null>(null);
   const me = room?.me;
   const judge = room?.players.find((player) => player.isJudge);
   const submitted = room?.players.find((player) => player.id === me?.playerId)?.hasSubmitted ?? false;
@@ -350,6 +366,16 @@ function GameRoom() {
   const canStart = room?.phase === "lobby" && Boolean(me?.isHost) && activePlayerCount >= room.settings.minPlayers;
   const canSubmit = room?.phase === "submitting" && !me?.isJudge && !me?.isWaiting && !submitted;
   const canJudge = room?.phase === "judging" && Boolean(me?.isJudge) && !me?.isWaiting;
+
+  useEffect(() => {
+    if (!room) {
+      return;
+    }
+
+    setRestartRoomSize(room.settings.maxPlayers);
+    setRestartTimerSeconds(room.settings.timerSeconds);
+    setRestartPointsToWin(room.settings.pointsToWin);
+  }, [room?.settings.maxPlayers, room?.settings.pointsToWin, room?.settings.timerSeconds]);
 
   useEffect(() => {
     setSelectedCardIds([]);
@@ -381,6 +407,21 @@ function GameRoom() {
     previousResultRef.current = resultKey;
   }, [me, room]);
 
+  useEffect(() => {
+    if (!room || room.phase !== "game_over") {
+      previousGameOverRef.current = null;
+      setGameOverModalOpen(false);
+      setRestartSettingsOpen(false);
+      return;
+    }
+
+    if (previousGameOverRef.current !== room.code) {
+      previousGameOverRef.current = room.code;
+      setGameOverModalOpen(true);
+      playSound("gameOver");
+    }
+  }, [room]);
+
   if (!room || !me) {
     return null;
   }
@@ -390,6 +431,7 @@ function GameRoom() {
   const waitingPlayers = sortedPlayers.filter((player) => player.isWaiting);
   const showSubmissions = Boolean(room.round && room.round.submissions.length > 0);
   const requiredCards = room.round?.blackCard.pick ?? 1;
+  const winner = winnerName(room.players);
 
   return (
     <section className="grid flex-1 gap-5 py-5 lg:grid-cols-[290px_minmax(0,1fr)]">
@@ -491,7 +533,13 @@ function GameRoom() {
             <JewelCard text={room.round.blackCard.text} tone="black" />
             <Panel>
               <RoundStatus phase={room.phase} isJudge={me.isJudge} judgeName={judge?.name ?? "Juiz"} submitted={submitted} />
-              <RoundTimer deadlineRemainingMs={room.deadlineRemainingMs} phase={room.phase} />
+              <RoundTimer
+                deadlineAt={room.deadlineAt}
+                deadlineRemainingMs={room.deadlineRemainingMs}
+                phase={room.phase}
+                skippedReason={room.round.skippedReason}
+                syncKey={`${room.phase}:${room.round.number}:${room.deadlineAt ?? "none"}`}
+              />
             </Panel>
           </div>
         )}
@@ -513,6 +561,7 @@ function GameRoom() {
             {room.round.result && (
               <p className="mb-4 text-sm font-semibold text-ink/65">{room.round.result.winnerName} levou a rodada.</p>
             )}
+            {room.round.skippedReason && <p className="mb-4 text-sm font-semibold text-ink/65">{room.round.skippedReason}</p>}
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
               {room.round.submissions.map((submission) => (
                 <SubmissionStack
@@ -573,7 +622,7 @@ function GameRoom() {
           <Panel className="border-amber bg-amber/10">
             <h2 className="text-2xl font-black">Fim de jogo</h2>
             <p className="mt-2 text-sm font-semibold text-ink/70">
-              {winnerName(room.players)} terminou no topo do cofre.
+              {winner} terminou no topo do cofre.
             </p>
           </Panel>
         )}
@@ -588,6 +637,43 @@ function GameRoom() {
           }}
           text="Você volta para a tela principal. Se a partida já começou, sua conexão fica marcada como ausente até você entrar novamente."
           title="Sair desta sala?"
+        />
+      )}
+      {gameOverModalOpen && (
+        <GameOverModal
+          isHost={me.isHost}
+          onClose={() => {
+            setGameOverModalOpen(false);
+            setRestartSettingsOpen(false);
+          }}
+          onConfig={() => setRestartSettingsOpen(true)}
+          onCancelConfig={() => setRestartSettingsOpen(false)}
+          onPlayAgain={() => {
+            unlockAudio();
+            if (me.isHost) {
+              restartGame();
+            }
+            setGameOverModalOpen(false);
+            setRestartSettingsOpen(false);
+          }}
+          onSubmitSettings={() => {
+            unlockAudio();
+            restartGame({
+              maxPlayers: clamp(restartRoomSize, 3, 10),
+              timerSeconds: clamp(restartTimerSeconds, 30, 120),
+              pointsToWin: clamp(restartPointsToWin, 5, 30)
+            });
+            setGameOverModalOpen(false);
+            setRestartSettingsOpen(false);
+          }}
+          pointsToWin={restartPointsToWin}
+          roomSize={restartRoomSize}
+          settingsOpen={restartSettingsOpen}
+          setPointsToWin={setRestartPointsToWin}
+          setRoomSize={setRestartRoomSize}
+          setTimerSeconds={setRestartTimerSeconds}
+          timerSeconds={restartTimerSeconds}
+          winner={winner}
         />
       )}
     </section>
@@ -622,6 +708,97 @@ function ConfirmModal({
             {confirmLabel}
           </Button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function GameOverModal({
+  isHost,
+  onClose,
+  onConfig,
+  onCancelConfig,
+  onPlayAgain,
+  onSubmitSettings,
+  pointsToWin,
+  roomSize,
+  settingsOpen,
+  setPointsToWin,
+  setRoomSize,
+  setTimerSeconds,
+  timerSeconds,
+  winner
+}: {
+  isHost: boolean;
+  onClose: () => void;
+  onConfig: () => void;
+  onCancelConfig: () => void;
+  onPlayAgain: () => void;
+  onSubmitSettings: () => void;
+  pointsToWin: number;
+  roomSize: number;
+  settingsOpen: boolean;
+  setPointsToWin: (value: number) => void;
+  setRoomSize: (value: number) => void;
+  setTimerSeconds: (value: number) => void;
+  timerSeconds: number;
+  winner: string;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-ink/55 p-4" role="dialog" aria-modal="true" aria-labelledby="game-over-title">
+      <div className="w-full max-w-md rounded-md border border-amber/40 bg-white p-5 shadow-card">
+        <div className="mb-4 flex items-center gap-3">
+          <div className="grid h-11 w-11 place-items-center rounded-md bg-amber/10 text-amber">
+            <Trophy size={22} />
+          </div>
+          <div>
+            <h2 className="text-xl font-black" id="game-over-title">
+              Fim de jogo
+            </h2>
+            <p className="mt-1 text-sm font-semibold text-ink/65">{winner} venceu a partida.</p>
+          </div>
+        </div>
+
+        {settingsOpen && isHost && (
+          <div className="mb-5 grid gap-4 sm:grid-cols-3">
+            <NumberField label="Tamanho" max={10} min={3} onChange={setRoomSize} value={roomSize} />
+            <NumberField label="Timer" max={120} min={30} onChange={setTimerSeconds} suffix="s" value={timerSeconds} />
+            <NumberField label="Pontua\u00e7\u00e3o" max={30} min={5} onChange={setPointsToWin} value={pointsToWin} />
+          </div>
+        )}
+
+        {isHost ? (
+          <div className="grid gap-3 sm:grid-cols-2">
+            {settingsOpen ? (
+              <>
+                <Button onClick={onCancelConfig} type="button" variant="pearl">
+                  <ArrowLeft size={18} />
+                  Voltar
+                </Button>
+                <Button onClick={onSubmitSettings} type="button" variant="ruby">
+                  <Play size={18} />
+                  Iniciar
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button onClick={onPlayAgain} type="button" variant="ruby">
+                  <Play size={18} />
+                  Jogar novamente
+                </Button>
+                <Button onClick={onConfig} type="button" variant="pearl">
+                  <Settings size={18} />
+                  Configura\u00e7\u00f5es
+                </Button>
+              </>
+            )}
+          </div>
+        ) : (
+          <Button className="w-full" onClick={onClose} type="button" variant="ruby">
+            <Check size={18} />
+            Jogar novamente
+          </Button>
+        )}
       </div>
     </div>
   );
