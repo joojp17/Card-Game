@@ -18,6 +18,7 @@ export type PlayerPublic = {
   isHost: boolean;
   isJudge: boolean;
   isWaiting: boolean;
+  isAbsent: boolean;
   connected: boolean;
   handCount: number;
   hasSubmitted: boolean;
@@ -69,6 +70,7 @@ export type PublicRoomState = {
     isHost: boolean;
     isJudge: boolean;
     isWaiting: boolean;
+    isAbsent: boolean;
   } | null;
 };
 
@@ -119,6 +121,7 @@ export type ClientToServerEvents = {
   chooseWinner: (payload: { submissionId: string }) => void;
   nextRound: () => void;
   kickPlayer: (payload: { playerId: string }) => void;
+  playerActivity: () => void;
   leaveRoom: () => void;
 };
 
@@ -127,4 +130,5 @@ export type ServerToClientEvents = {
   roomState: (payload: PublicRoomState) => void;
   gameError: (payload: GameError) => void;
   kickedFromRoom: (payload: { roomCode: string; message: string }) => void;
+  roomClosed: (payload: { roomCode: string; message: string }) => void;
 };

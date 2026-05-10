@@ -12,6 +12,7 @@ export function App() {
     adultAccepted,
     clearError,
     clearKickedMessage,
+    clearRoomClosedMessage,
     createRoom,
     error,
     joinRoom,
@@ -19,6 +20,7 @@ export function App() {
     playerName,
     restoreSession,
     room,
+    roomClosedMessage,
     roomCode,
     setAdultAccepted,
     setPlayerName,
@@ -90,6 +92,15 @@ export function App() {
           >
             {error}
           </button>
+        )}
+
+        {roomClosedMessage && (
+          <InfoModal
+            actionLabel="Entendi"
+            onClose={clearRoomClosedMessage}
+            text={roomClosedMessage}
+            title="Sala encerrada"
+          />
         )}
 
         {kickedMessage && (
@@ -346,7 +357,7 @@ function RoundTimer({
 }
 
 function GameRoom() {
-  const { chooseWinner, kickPlayer, leaveRoom, restartGame, room, startGame, submitCard } = useGameStore();
+  const { chooseWinner, kickPlayer, leaveRoom, restartGame, room, sendPlayerActivity, startGame, submitCard } = useGameStore();
   const [selectedCardIds, setSelectedCardIds] = useState<string[]>([]);
   const [leaveModalOpen, setLeaveModalOpen] = useState(false);
   const [gameOverModalOpen, setGameOverModalOpen] = useState(false);
@@ -361,10 +372,49 @@ function GameRoom() {
   const me = room?.me;
   const judge = room?.players.find((player) => player.isJudge);
   const submitted = room?.players.find((player) => player.id === me?.playerId)?.hasSubmitted ?? false;
-  const activePlayerCount = room?.players.filter((player) => !player.isWaiting && player.connected).length ?? 0;
+  const activePlayerCount = room?.players.filter((player) => !player.isWaiting && !player.isAbsent && player.connected).length ?? 0;
   const canStart = room?.phase === "lobby" && Boolean(me?.isHost) && activePlayerCount >= room.settings.minPlayers;
-  const canSubmit = room?.phase === "submitting" && !me?.isJudge && !me?.isWaiting && !submitted;
-  const canJudge = room?.phase === "judging" && Boolean(me?.isJudge) && !me?.isWaiting;
+  const canSubmit = room?.phase === "submitting" && !me?.isJudge && !me?.isWaiting && !me?.isAbsent && !submitted;
+  const canJudge = room?.phase === "judging" && Boolean(me?.isJudge) && !me?.isWaiting && !me?.isAbsent;
+
+  useEffect(() => {
+    if (!room) {
+      return;
+    }
+
+    let lastSentAt = 0;
+    const sendThrottledActivity = () => {
+      const now = Date.now();
+
+      if (now - lastSentAt < 15000) {
+        return;
+      }
+
+      lastSentAt = now;
+      sendPlayerActivity();
+    };
+
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        sendThrottledActivity();
+      }
+    };
+
+    sendThrottledActivity();
+    window.addEventListener("focus", sendThrottledActivity);
+    window.addEventListener("keydown", sendThrottledActivity);
+    window.addEventListener("pointerdown", sendThrottledActivity);
+    window.addEventListener("mousemove", sendThrottledActivity);
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    return () => {
+      window.removeEventListener("focus", sendThrottledActivity);
+      window.removeEventListener("keydown", sendThrottledActivity);
+      window.removeEventListener("pointerdown", sendThrottledActivity);
+      window.removeEventListener("mousemove", sendThrottledActivity);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [room?.code, sendPlayerActivity]);
 
   useEffect(() => {
     if (!room) {
@@ -428,13 +478,14 @@ function GameRoom() {
   const sortedPlayers = [...room.players].sort((left, right) => right.score - left.score || left.name.localeCompare(right.name));
   const activePlayers = sortedPlayers.filter((player) => !player.isWaiting);
   const waitingPlayers = sortedPlayers.filter((player) => player.isWaiting);
+  const leaderPlayerId = sortedPlayers[0]?.id ?? null;
   const showSubmissions = Boolean(room.round && room.round.submissions.length > 0);
   const requiredCards = room.round?.blackCard.pick ?? 1;
   const winner = winnerName(room.players);
 
   return (
-    <section className="grid flex-1 gap-5 py-5 lg:grid-cols-[290px_minmax(0,1fr)]">
-      <aside className="space-y-4">
+    <section className="grid flex-1 items-stretch gap-5 py-5 lg:grid-cols-[290px_minmax(0,1fr)]">
+      <aside className="flex flex-col gap-4 lg:min-h-[calc(100vh-8.5rem)]">
         <Button
           className="w-full justify-start"
           onClick={() => setLeaveModalOpen(true)}
@@ -445,7 +496,7 @@ function GameRoom() {
           Sair da sala
         </Button>
 
-        <div className="rounded-md border border-ink/10 bg-white p-4 shadow-card">
+        <div className="flex-1 rounded-md border border-ink/10 bg-white p-4 shadow-card">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-sm font-black uppercase tracking-normal text-ink/60">Jogadores</h2>
             <span className="inline-flex items-center gap-1 rounded bg-stone-100 px-2 py-1 text-xs font-black">
@@ -461,6 +512,8 @@ function GameRoom() {
                 isHost={player.isHost}
                 isJudge={player.isJudge}
                 isWaiting={player.isWaiting}
+                isAbsent={player.isAbsent}
+                isLeader={player.id === leaderPlayerId}
                 key={player.id}
                 name={player.name}
                 onKick={() => kickPlayer(player.id)}
@@ -479,6 +532,8 @@ function GameRoom() {
                     isHost={player.isHost}
                     isJudge={false}
                     isWaiting={player.isWaiting}
+                    isAbsent={player.isAbsent}
+                    isLeader={player.id === leaderPlayerId}
                     key={player.id}
                     name={player.name}
                     onKick={() => kickPlayer(player.id)}
@@ -501,14 +556,21 @@ function GameRoom() {
         </div>
       </aside>
 
-      <div className="space-y-5">
+      <div className="flex min-h-0 flex-col gap-5 lg:min-h-[calc(100vh-8.5rem)]">
         {room.phase === "lobby" && (
           <Panel>
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h2 className="text-2xl font-black">Lobby aberto</h2>
+                <h2 className="text-2xl font-black">
+                  {activePlayerCount >= room.settings.minPlayers ? "Lobby aberto" : "Aguardando jogadores"}
+                </h2>
                 <p className="mt-1 text-sm font-semibold text-ink/65">
-                  Chame pelo código da sala. A partida começa com pelo menos {room.settings.minPlayers} jogadores.
+                  {activePlayerCount >= room.settings.minPlayers
+                    ? "Todo mundo pronto. O host pode iniciar a próxima partida."
+                    : `Chame pelo código da sala. Faltam ${Math.max(
+                        0,
+                        room.settings.minPlayers - activePlayerCount
+                      )} jogador(es) para iniciar.`}
                 </p>
               </div>
               <Button
@@ -535,6 +597,7 @@ function GameRoom() {
                 phase={room.phase}
                 isJudge={me.isJudge}
                 judgeName={judge?.name ?? "Juiz"}
+                roundWinnerName={room.round.result?.winnerName ?? null}
                 skippedReason={room.round.skippedReason}
                 submitted={submitted}
               />
@@ -552,13 +615,13 @@ function GameRoom() {
           <Panel className="border-emerald/30 bg-emerald/10">
             <h2 className="text-xl font-black">Você está na fila de espera</h2>
             <p className="mt-1 text-sm font-semibold text-ink/65">
-              Você entrou com a rodada em andamento e participa automaticamente na próxima rodada.
+              Você participa automaticamente na próxima rodada.
             </p>
           </Panel>
         )}
 
         {showSubmissions && room.round && (
-          <Panel>
+          <Panel className="flex-1">
             <h2 className="mb-4 text-xl font-black">
               {room.phase === "submitting" ? "Cartas jogadas" : room.phase === "judging" ? "Respostas anônimas" : "Resultado"}
             </h2>
@@ -635,7 +698,9 @@ function GameRoom() {
       )}
       {gameOverModalOpen && (
         <GameOverModal
+          activePlayerCount={activePlayerCount}
           isHost={me.isHost}
+          minPlayers={room.settings.minPlayers}
           onClose={() => {
             setGameOverModalOpen(false);
             setRestartSettingsOpen(false);
@@ -708,7 +773,9 @@ function ConfirmModal({
 }
 
 function GameOverModal({
+  activePlayerCount,
   isHost,
+  minPlayers,
   onClose,
   onConfig,
   onCancelConfig,
@@ -723,7 +790,9 @@ function GameOverModal({
   timerSeconds,
   winner
 }: {
+  activePlayerCount: number;
   isHost: boolean;
+  minPlayers: number;
   onClose: () => void;
   onConfig: () => void;
   onCancelConfig: () => void;
@@ -738,6 +807,8 @@ function GameOverModal({
   timerSeconds: number;
   winner: string;
 }) {
+  const hasEnoughPlayers = activePlayerCount >= minPlayers;
+
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-ink/55 p-4" role="dialog" aria-modal="true" aria-labelledby="game-over-title">
       <div className="w-full max-w-md rounded-md border border-amber/40 bg-white p-5 shadow-card">
@@ -752,6 +823,12 @@ function GameOverModal({
             <p className="mt-1 text-sm font-semibold text-ink/65">{winner} venceu a partida.</p>
           </div>
         </div>
+
+        {isHost && !hasEnoughPlayers && (
+          <p className="mb-5 rounded-md border border-amber/30 bg-amber/10 p-3 text-sm font-semibold text-ink/70">
+            Faltam {Math.max(0, minPlayers - activePlayerCount)} jogador(es). Vamos voltar para a sala e aguardar o mínimo.
+          </p>
+        )}
 
         {settingsOpen && isHost && (
           <div className="mb-5 grid gap-4 sm:grid-cols-3">
@@ -778,7 +855,7 @@ function GameOverModal({
               <>
                 <Button onClick={onPlayAgain} type="button" variant="ruby">
                   <Play size={18} />
-                  Jogar novamente
+                  {hasEnoughPlayers ? "Jogar novamente" : "Aguardar jogadores"}
                 </Button>
                 <Button onClick={onConfig} type="button" variant="pearl">
                   <Settings size={18} />
@@ -841,12 +918,14 @@ function RoundStatus({
   phase,
   isJudge,
   judgeName,
+  roundWinnerName,
   skippedReason,
   submitted
 }: {
   phase: string;
   isJudge: boolean;
   judgeName: string;
+  roundWinnerName?: string | null;
   skippedReason?: string | null;
   submitted: boolean;
 }) {
@@ -857,15 +936,16 @@ function RoundStatus({
     if (phase === "judging" && isJudge) return "Escolha a resposta que merece a joia da vergonha.";
     if (phase === "judging") return `${judgeName} está julgando as respostas.`;
     if (phase === "round_result" && skippedReason) return skippedReason;
+    if (phase === "round_result" && roundWinnerName) return `${roundWinnerName} ganhou a rodada.`;
     if (phase === "round_result") return "Resultado da rodada.";
     return "A partida terminou.";
-  }, [isJudge, judgeName, phase, skippedReason, submitted]);
+  }, [isJudge, judgeName, phase, roundWinnerName, skippedReason, submitted]);
 
   return <p className="text-lg font-black leading-snug text-ink">{copy}</p>;
 }
 
 function winnerName(players: { name: string; score: number }[]) {
-  return [...players].sort((left, right) => right.score - left.score)[0]?.name ?? "Ninguém";
+  return [...players].sort((left, right) => right.score - left.score || left.name.localeCompare(right.name))[0]?.name ?? "Ninguém";
 }
 
 function clamp(value: number, min: number, max: number) {

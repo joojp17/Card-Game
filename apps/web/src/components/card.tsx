@@ -42,26 +42,49 @@ type PlayerRowProps = {
   isHost: boolean;
   isJudge: boolean;
   isWaiting: boolean;
+  isAbsent: boolean;
+  isLeader: boolean;
   connected: boolean;
   canKick: boolean;
   onKick: () => void;
 };
 
-export function PlayerRow({ name, score, isHost, isJudge, isWaiting, connected, canKick, onKick }: PlayerRowProps) {
+export function PlayerRow({
+  name,
+  score,
+  isHost,
+  isJudge,
+  isWaiting,
+  isAbsent,
+  isLeader,
+  connected,
+  canKick,
+  onKick
+}: PlayerRowProps) {
   return (
     <div
       className={cn(
         "flex items-center gap-3 rounded-md border px-3 py-2",
-        isJudge ? "border-amber/40 bg-amber/10" : isWaiting ? "border-emerald/30 bg-emerald/10" : "border-ink/10 bg-white"
+        isJudge
+          ? "border-amber/40 bg-amber/10"
+          : isWaiting
+            ? "border-emerald/30 bg-emerald/10"
+            : isAbsent
+              ? "border-amber/30 bg-amber/10"
+              : "border-ink/10 bg-white"
       )}
     >
-      <div className={cn("h-2.5 w-2.5 rounded-full", connected ? "bg-emerald" : "bg-stone-300")} />
+      <div className={cn("h-2.5 w-2.5 rounded-full", isAbsent ? "bg-amber" : connected ? "bg-emerald" : "bg-stone-300")} />
       <div className="min-w-0 flex-1">
-        <div className="truncate text-sm font-bold text-ink">{name}</div>
+        <div className="flex min-w-0 items-center gap-1.5 text-sm font-bold text-ink">
+          {isLeader && <Crown className="shrink-0 text-amber" size={15} />}
+          <span className="truncate">{name}</span>
+        </div>
         <div className="flex flex-wrap gap-1 text-[11px] font-semibold uppercase tracking-normal text-ink/55">
           {isHost && <span>host</span>}
           {isJudge && <span>juiz</span>}
           {isWaiting && <span>espera</span>}
+          {isAbsent && <span>ausente</span>}
           {canKick && (
             <button className="font-black text-ruby underline-offset-2 hover:underline" onClick={onKick} type="button">
               kikar

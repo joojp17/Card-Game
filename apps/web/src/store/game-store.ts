@@ -12,6 +12,7 @@ type GameStore = {
   playerName: string;
   error: string | null;
   kickedMessage: string | null;
+  roomClosedMessage: string | null;
   adultAccepted: boolean;
   createRoom: (settings: CreateRoomPayload) => Promise<string>;
   joinRoom: (roomCode: string, playerName: string) => void;
@@ -22,12 +23,14 @@ type GameStore = {
   chooseWinner: (submissionId: string) => void;
   nextRound: () => void;
   kickPlayer: (playerId: string) => void;
+  sendPlayerActivity: () => void;
   leaveRoom: () => void;
   setAdultAccepted: (accepted: boolean) => void;
   setRoomCode: (roomCode: string) => void;
   setPlayerName: (playerName: string) => void;
   clearError: () => void;
   clearKickedMessage: () => void;
+  clearRoomClosedMessage: () => void;
 };
 
 const serverUrl = import.meta.env.VITE_SERVER_URL ?? "http://localhost:3333";
@@ -40,6 +43,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   playerName: localStorage.getItem("caj:lastName") ?? "",
   error: null,
   kickedMessage: null,
+  roomClosedMessage: null,
   adultAccepted: localStorage.getItem("caj:adultAccepted") === "true",
 
   createRoom: async (settings) => {
@@ -96,6 +100,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   chooseWinner: (submissionId) => get().socket?.emit("chooseWinner", { submissionId }),
   nextRound: () => get().socket?.emit("nextRound"),
   kickPlayer: (playerId) => get().socket?.emit("kickPlayer", { playerId }),
+  sendPlayerActivity: () => get().socket?.emit("playerActivity"),
   leaveRoom: () => {
     const code = get().room?.code ?? get().roomCode;
     get().socket?.emit("leaveRoom");
@@ -111,7 +116,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
   setRoomCode: (roomCode) => set({ roomCode: roomCode.toUpperCase() }),
   setPlayerName: (playerName) => set({ playerName }),
   clearError: () => set({ error: null }),
-  clearKickedMessage: () => set({ kickedMessage: null })
+  clearKickedMessage: () => set({ kickedMessage: null }),
+  clearRoomClosedMessage: () => set({ roomClosedMessage: null })
 }));
 
 function ensureSocket(get: () => GameStore, set: (state: Partial<GameStore>) => void): GameSocket {
@@ -141,6 +147,13 @@ function ensureSocket(get: () => GameStore, set: (state: Partial<GameStore>) => 
       localStorage.removeItem("caj:lastRoom");
     }
     set({ kickedMessage: message, room: null, roomCode: "", error: null });
+  });
+  socket.on("roomClosed", ({ message }) => {
+    const code = get().room?.code ?? get().roomCode;
+    if (code) {
+      localStorage.removeItem("caj:lastRoom");
+    }
+    set({ roomClosedMessage: message, room: null, roomCode: "", error: null });
   });
 
   set({ socket });

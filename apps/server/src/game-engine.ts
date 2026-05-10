@@ -18,6 +18,8 @@ type Player = {
   score: number;
   connected: boolean;
   isWaiting: boolean;
+  isAbsent: boolean;
+  inactiveRounds: number;
   hand: WhiteCard[];
 };
 
@@ -41,6 +43,8 @@ type Room = {
   blackCard: BlackCard | null;
   submissions: Submission[];
   skippedReason: string | null;
+  consecutiveSkippedRounds: number;
+  nextGameJudgeId: string | null;
   deadlineAt: number | null;
   timeout: ReturnType<typeof setTimeout> | null;
   cleanupTimeout: ReturnType<typeof setTimeout> | null;
@@ -51,8 +55,10 @@ type Room = {
   } | null;
 };
 
-const LOBBY_IDLE_CLEANUP_MS = 30 * 60 * 1000;
-const FINISHED_ROOM_CLEANUP_MS = 30 * 60 * 1000;
+const ROOM_INACTIVITY_MS = 5 * 60 * 1000;
+const PLAYER_INACTIVE_ROUND_LIMIT = 3;
+const ROOM_SKIPPED_ROUND_LIMIT = 3;
+const INACTIVITY_MESSAGE = "A sala foi encerrada por inatividade.";
 
 export type JoinResult = {
   playerId: string;
@@ -71,7 +77,8 @@ export class GameEngine {
 
   constructor(
     private readonly onRoomChanged?: (roomCode: string) => void | Promise<void>,
-    private readonly cardCatalog: CardCatalog = fallbackCardCatalog
+    private readonly cardCatalog: CardCatalog = fallbackCardCatalog,
+    private readonly onRoomClosed?: (roomCode: string, message: string) => void | Promise<void>
   ) {}
 
   createRoom(settings: Partial<CreateRoomPayload> = {}): { code: string } {
@@ -101,13 +108,15 @@ export class GameEngine {
       blackCard: null,
       submissions: [],
       skippedReason: null,
+      consecutiveSkippedRounds: 0,
+      nextGameJudgeId: null,
       deadlineAt: null,
       timeout: null,
       cleanupTimeout: null,
       result: null
     });
 
-    this.scheduleRoomCleanup(this.requireRoom(code), LOBBY_IDLE_CLEANUP_MS);
+    this.refreshRoomInactivity(this.requireRoom(code));
 
     return { code };
   }
@@ -137,9 +146,19 @@ export class GameEngine {
     }
 
     if (returningPlayer) {
-      this.clearRoomCleanup(room);
       returningPlayer.name = name;
       returningPlayer.connected = true;
+
+      if (returningPlayer.isAbsent) {
+        returningPlayer.isAbsent = false;
+        returningPlayer.inactiveRounds = 0;
+
+        if (room.phase !== "lobby" && room.phase !== "game_over") {
+          returningPlayer.isWaiting = true;
+        }
+      }
+
+      this.refreshRoomInactivity(room);
 
       return {
         playerId: returningPlayer.id,
@@ -163,15 +182,18 @@ export class GameEngine {
       score: 0,
       connected: true,
       isWaiting: room.phase !== "lobby",
+      isAbsent: false,
+      inactiveRounds: 0,
       hand: []
     };
 
     room.players.push(player);
-    this.clearRoomCleanup(room);
 
     if (!room.hostPlayerId) {
       room.hostPlayerId = player.id;
     }
+
+    this.refreshRoomInactivity(room);
 
     return {
       playerId: player.id,
@@ -189,11 +211,9 @@ export class GameEngine {
     }
 
     player.connected = false;
+    this.ensureEnoughActivePlayers(room);
     this.advanceSubmittingIfReady(room);
-
-    if (room.phase === "lobby" && room.players.every((candidate) => !candidate.connected)) {
-      this.scheduleRoomCleanup(room, LOBBY_IDLE_CLEANUP_MS);
-    }
+    this.refreshRoomInactivity(room);
   }
 
   startGame(code: string, actorId: string): void {
@@ -205,7 +225,7 @@ export class GameEngine {
       throw new GameEngineError("INVALID_MOVE", "A partida já começou.");
     }
 
-    if (room.players.filter((player) => player.connected && !player.isWaiting).length < room.settings.minPlayers) {
+    if (this.getActivePlayerCount(room) < room.settings.minPlayers) {
       throw new GameEngineError("NOT_ENOUGH_PLAYERS", `A sala precisa de pelo menos ${room.settings.minPlayers} jogadores.`);
     }
 
@@ -214,16 +234,21 @@ export class GameEngine {
     room.roundNumber = 1;
     room.result = null;
     room.skippedReason = null;
+    room.consecutiveSkippedRounds = 0;
     room.submissions = [];
     room.players.forEach((player) => {
       player.score = 0;
       player.isWaiting = false;
+      player.isAbsent = false;
+      player.inactiveRounds = 0;
       player.hand = [];
       this.drawToHand(room, player);
     });
-    room.judgeId = room.players.find((player) => player.connected && !player.isWaiting)?.id ?? null;
+    room.judgeId = this.getStartingJudgeId(room);
+    room.nextGameJudgeId = null;
     room.blackCard = this.drawBlack(room);
     room.phase = "submitting";
+    this.clearRoomCleanup(room);
     this.schedulePhaseTimeout(room);
   }
 
@@ -243,12 +268,13 @@ export class GameEngine {
       pointsToWin: settings.pointsToWin ?? room.settings.pointsToWin
     };
 
+    room.settings = nextSettings;
+
     if (this.getActivePlayerCount(room) < nextSettings.minPlayers) {
-      throw new GameEngineError("NOT_ENOUGH_PLAYERS", `A sala precisa de pelo menos ${nextSettings.minPlayers} jogadores.`);
+      this.moveToLobby(room, { resetScores: true });
+      return;
     }
 
-    room.settings = nextSettings;
-    this.clearRoomCleanup(room);
     room.phase = "lobby";
     this.startGame(code, actorId);
   }
@@ -261,7 +287,7 @@ export class GameEngine {
       throw new GameEngineError("INVALID_MOVE", "Não é hora de jogar cartas.");
     }
 
-    if (player.isWaiting) {
+    if (player.isWaiting || player.isAbsent) {
       throw new GameEngineError("INVALID_MOVE", "Você entra na próxima rodada.");
     }
 
@@ -293,6 +319,7 @@ export class GameEngine {
       playerId: actorId,
       cards
     });
+    player.inactiveRounds = 0;
 
     this.advanceSubmittingIfReady(room);
   }
@@ -315,6 +342,9 @@ export class GameEngine {
     }
 
     const winner = this.requirePlayer(room, submission.playerId);
+    const judge = this.requirePlayer(room, actorId);
+
+    judge.inactiveRounds = 0;
     winner.score += 1;
     room.result = {
       winnerPlayerId: winner.id,
@@ -322,7 +352,9 @@ export class GameEngine {
       cards: submission.cards
     };
     room.skippedReason = null;
+    room.consecutiveSkippedRounds = 0;
     if (winner.score >= room.settings.pointsToWin) {
+      room.nextGameJudgeId = winner.id;
       this.finishGame(room);
     } else {
       room.phase = "round_result";
@@ -365,7 +397,7 @@ export class GameEngine {
     room.submissions = room.submissions.filter((submission) => submission.playerId !== target.id);
 
     if (this.getActivePlayerCount(room) < room.settings.minPlayers && room.phase !== "lobby") {
-      this.finishGame(room);
+      this.moveToLobby(room);
       return kicked;
     }
 
@@ -375,7 +407,26 @@ export class GameEngine {
     }
 
     this.advanceSubmittingIfReady(room);
+    this.refreshRoomInactivity(room);
     return kicked;
+  }
+
+  recordPlayerActivity(code: string, actorId: string): void {
+    const room = this.requireRoom(code);
+    const player = this.requirePlayer(room, actorId);
+
+    player.connected = true;
+    player.inactiveRounds = 0;
+
+    if (player.isAbsent) {
+      player.isAbsent = false;
+
+      if (room.phase !== "lobby" && room.phase !== "game_over") {
+        player.isWaiting = true;
+      }
+    }
+
+    this.refreshRoomInactivity(room);
   }
 
   getPublicRoom(code: string, viewerPlayerId: string): PublicRoomState {
@@ -398,6 +449,7 @@ export class GameEngine {
         isHost: room.hostPlayerId === player.id,
         isJudge: room.judgeId === player.id,
         isWaiting: player.isWaiting,
+        isAbsent: player.isAbsent,
         connected: player.connected,
         handCount: player.hand.length,
         hasSubmitted: room.submissions.some((submission) => submission.playerId === player.id)
@@ -425,7 +477,8 @@ export class GameEngine {
             name: viewer.name,
             isHost: room.hostPlayerId === viewer.id,
             isJudge: room.judgeId === viewer.id,
-            isWaiting: viewer.isWaiting
+            isWaiting: viewer.isWaiting,
+            isAbsent: viewer.isAbsent
           }
         : null
     };
@@ -462,7 +515,7 @@ export class GameEngine {
       return;
     }
 
-    const expectedSubmitters = room.players.filter((player) => player.connected && !player.isWaiting && player.id !== room.judgeId);
+    const expectedSubmitters = this.getExpectedSubmitters(room);
     const submittedPlayerIds = new Set(room.submissions.map((submission) => submission.playerId));
 
     if (expectedSubmitters.length > 0 && expectedSubmitters.every((player) => submittedPlayerIds.has(player.id))) {
@@ -473,13 +526,13 @@ export class GameEngine {
 
   private startNextRound(room: Room): void {
     room.players.forEach((player) => {
-      if (player.connected && player.isWaiting) {
+      if (player.connected && player.isWaiting && !player.isAbsent) {
         player.isWaiting = false;
       }
     });
 
-    if (room.players.filter((player) => player.connected && !player.isWaiting).length < room.settings.minPlayers) {
-      this.finishGame(room);
+    if (this.getActivePlayerCount(room) < room.settings.minPlayers) {
+      this.moveToLobby(room);
       return;
     }
 
@@ -491,6 +544,7 @@ export class GameEngine {
     room.judgeId = this.getNextJudgeId(room);
     room.blackCard = this.drawBlack(room);
     room.phase = "submitting";
+    this.refreshRoomInactivity(room);
     this.schedulePhaseTimeout(room);
   }
 
@@ -509,19 +563,29 @@ export class GameEngine {
     }
 
     if (room.phase === "submitting") {
+      this.markMissingSubmittersInactive(room);
+
       if (room.submissions.length > 0) {
+        if (this.getActivePlayerCount(room) < room.settings.minPlayers) {
+          this.moveToLobby(room);
+          return;
+        }
+
         room.phase = "judging";
         this.schedulePhaseTimeout(room);
       } else {
         this.finishRoundWithoutWinner(room, "Ninguém ganhou a rodada: o tempo acabou e ninguém jogou uma carta.");
       }
     } else if (room.phase === "judging") {
+      this.markPlayerInactive(room, room.judgeId);
       this.finishRoundWithoutWinner(room, "Ninguém ganhou a rodada: o tempo acabou e o juiz não escolheu uma carta.");
     } else if (room.phase === "round_result") {
       this.startNextRound(room);
     }
 
-    void this.onRoomChanged?.(room.code);
+    if (this.rooms.has(room.code)) {
+      void this.onRoomChanged?.(room.code);
+    }
   }
 
   private schedulePhaseTimeout(room: Room): void {
@@ -553,22 +617,28 @@ export class GameEngine {
   private finishGame(room: Room): void {
     room.phase = "game_over";
     this.clearPhaseTimeout(room);
-    this.scheduleRoomCleanup(room, FINISHED_ROOM_CLEANUP_MS);
+    this.scheduleRoomCleanup(room, ROOM_INACTIVITY_MS, INACTIVITY_MESSAGE);
   }
 
   private finishRoundWithoutWinner(room: Room, reason: string): void {
     room.result = null;
     room.skippedReason = reason;
+    room.consecutiveSkippedRounds += 1;
+
+    if (room.consecutiveSkippedRounds >= ROOM_SKIPPED_ROUND_LIMIT) {
+      this.closeRoom(room, INACTIVITY_MESSAGE);
+      return;
+    }
+
     room.phase = "round_result";
     this.schedulePhaseTimeout(room);
   }
 
-  private scheduleRoomCleanup(room: Room, timeoutMs: number): void {
+  private scheduleRoomCleanup(room: Room, timeoutMs: number, message = INACTIVITY_MESSAGE): void {
     this.clearRoomCleanup(room);
 
     room.cleanupTimeout = setTimeout(() => {
-      this.clearPhaseTimeout(room);
-      this.rooms.delete(room.code);
+      this.closeRoom(room, message);
     }, timeoutMs);
     room.cleanupTimeout.unref?.();
   }
@@ -581,8 +651,102 @@ export class GameEngine {
     room.cleanupTimeout = null;
   }
 
+  private closeRoom(room: Room, message: string): void {
+    this.clearPhaseTimeout(room);
+    this.clearRoomCleanup(room);
+    this.rooms.delete(room.code);
+    void this.onRoomClosed?.(room.code, message);
+  }
+
+  private refreshRoomInactivity(room: Room): void {
+    if (room.phase === "game_over") {
+      this.scheduleRoomCleanup(room, ROOM_INACTIVITY_MS, INACTIVITY_MESSAGE);
+      return;
+    }
+
+    if (room.phase === "lobby" && this.getActivePlayerCount(room) < room.settings.minPlayers) {
+      this.scheduleRoomCleanup(room, ROOM_INACTIVITY_MS, INACTIVITY_MESSAGE);
+      return;
+    }
+
+    this.clearRoomCleanup(room);
+  }
+
+  private ensureEnoughActivePlayers(room: Room): void {
+    if (room.phase !== "lobby" && room.phase !== "game_over" && this.getActivePlayerCount(room) < room.settings.minPlayers) {
+      this.moveToLobby(room);
+    }
+  }
+
+  private moveToLobby(room: Room, options: { resetScores?: boolean } = {}): void {
+    this.clearPhaseTimeout(room);
+    room.phase = "lobby";
+    room.roundNumber = 0;
+    room.judgeId = null;
+    room.blackCard = null;
+    room.submissions = [];
+    room.result = null;
+    room.skippedReason = null;
+    room.consecutiveSkippedRounds = 0;
+
+    room.players.forEach((player) => {
+      player.isWaiting = false;
+      player.isAbsent = false;
+      player.inactiveRounds = 0;
+      player.hand = [];
+
+      if (options.resetScores) {
+        player.score = 0;
+      }
+    });
+
+    this.refreshRoomInactivity(room);
+  }
+
+  private getExpectedSubmitters(room: Room): Player[] {
+    return room.players.filter((player) => player.connected && !player.isWaiting && !player.isAbsent && player.id !== room.judgeId);
+  }
+
+  private markMissingSubmittersInactive(room: Room): void {
+    const submittedPlayerIds = new Set(room.submissions.map((submission) => submission.playerId));
+
+    for (const player of this.getExpectedSubmitters(room)) {
+      if (!submittedPlayerIds.has(player.id)) {
+        this.markPlayerInactive(room, player.id);
+      }
+    }
+  }
+
+  private markPlayerInactive(room: Room, playerId: string | null): void {
+    if (!playerId) {
+      return;
+    }
+
+    const player = room.players.find((candidate) => candidate.id === playerId);
+
+    if (!player || player.isWaiting || player.isAbsent) {
+      return;
+    }
+
+    player.inactiveRounds += 1;
+
+    if (player.inactiveRounds >= PLAYER_INACTIVE_ROUND_LIMIT) {
+      player.isAbsent = true;
+    }
+  }
+
+  private getStartingJudgeId(room: Room): string | null {
+    const preferred = room.nextGameJudgeId
+      ? room.players.find(
+          (player) => player.id === room.nextGameJudgeId && player.connected && !player.isWaiting && !player.isAbsent
+        )
+      : null;
+
+    return preferred?.id ?? room.players.find((player) => player.connected && !player.isWaiting && !player.isAbsent)?.id ?? null;
+  }
+
   private getNextJudgeId(room: Room): string {
-    const fallback = room.players.find((player) => player.connected && !player.isWaiting);
+    const fallback = room.players.find((player) => player.connected && !player.isWaiting && !player.isAbsent);
 
     if (!fallback) {
       throw new GameEngineError("NOT_ENOUGH_PLAYERS", "Não há jogadores conectados.");
@@ -593,7 +757,7 @@ export class GameEngine {
     for (let offset = 1; offset <= room.players.length; offset += 1) {
       const candidate = room.players[(currentIndex + offset + room.players.length) % room.players.length];
 
-      if (candidate.connected && !candidate.isWaiting) {
+      if (candidate.connected && !candidate.isWaiting && !candidate.isAbsent) {
         return candidate.id;
       }
     }
@@ -602,7 +766,7 @@ export class GameEngine {
   }
 
   private getActivePlayerCount(room: Room): number {
-    return room.players.filter((player) => player.connected && !player.isWaiting).length;
+    return room.players.filter((player) => player.connected && !player.isWaiting && !player.isAbsent).length;
   }
 
   private drawToHand(room: Room, player: Player): void {

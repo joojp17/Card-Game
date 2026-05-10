@@ -133,6 +133,72 @@ describe("GameEngine", () => {
     expect(resultState.players.every((player) => player.score === 0)).toBe(true);
   });
 
+  it("closes the room after three consecutive rounds without a winner", () => {
+    vi.useFakeTimers();
+    const game = new GameEngine();
+    const { code } = game.createRoom({ timerSeconds: 30 });
+    const players = joinPlayers(game, code, 3);
+
+    game.startGame(code, players[0].playerId);
+
+    for (let round = 0; round < 3; round += 1) {
+      vi.advanceTimersByTime(30025);
+
+      if (round < 2) {
+        expect(game.getPublicRoom(code, players[0].playerId).phase).toBe("round_result");
+        vi.advanceTimersByTime(5025);
+      }
+    }
+
+    expect(game.getRoomSummary(code).exists).toBe(false);
+  });
+
+  it("marks a player absent after three missed actions and skips them", () => {
+    vi.useFakeTimers();
+    const game = new GameEngine();
+    const { code } = game.createRoom({ maxPlayers: 4, timerSeconds: 30, pointsToWin: 5 });
+    const players = joinPlayers(game, code, 4);
+
+    game.startGame(code, players[0].playerId);
+
+    let playerOneState = game.getPublicRoom(code, players[0].playerId);
+    let playerThreeState = game.getPublicRoom(code, players[2].playerId);
+    game.submitCards(code, players[2].playerId, [playerThreeState.hand[0].id]);
+    let playerFourState = game.getPublicRoom(code, players[3].playerId);
+    game.submitCards(code, players[3].playerId, [playerFourState.hand[0].id]);
+    vi.advanceTimersByTime(30025);
+
+    let judgeState = game.getPublicRoom(code, players[0].playerId);
+    game.chooseWinner(code, players[0].playerId, judgeState.round!.submissions[0].id);
+    vi.advanceTimersByTime(5025);
+
+    expect(game.getPublicRoom(code, players[0].playerId).round?.judgeId).toBe(players[1].playerId);
+
+    playerOneState = game.getPublicRoom(code, players[0].playerId);
+    game.submitCards(code, players[0].playerId, [playerOneState.hand[0].id]);
+    playerThreeState = game.getPublicRoom(code, players[2].playerId);
+    game.submitCards(code, players[2].playerId, [playerThreeState.hand[0].id]);
+    playerFourState = game.getPublicRoom(code, players[3].playerId);
+    game.submitCards(code, players[3].playerId, [playerFourState.hand[0].id]);
+    vi.advanceTimersByTime(30025);
+    vi.advanceTimersByTime(5025);
+
+    playerOneState = game.getPublicRoom(code, players[0].playerId);
+    game.submitCards(code, players[0].playerId, [playerOneState.hand[0].id]);
+    playerFourState = game.getPublicRoom(code, players[3].playerId);
+    game.submitCards(code, players[3].playerId, [playerFourState.hand[0].id]);
+    vi.advanceTimersByTime(30025);
+
+    const absentState = game.getPublicRoom(code, players[0].playerId);
+    expect(absentState.players.find((player) => player.id === players[1].playerId)?.isAbsent).toBe(true);
+
+    judgeState = absentState;
+    game.chooseWinner(code, judgeState.round!.judgeId, judgeState.round!.submissions[0].id);
+    vi.advanceTimersByTime(5025);
+
+    expect(game.getPublicRoom(code, players[0].playerId).round?.judgeId).not.toBe(players[1].playerId);
+  });
+
   it("puts late joiners in a waiting queue until the next round", () => {
     vi.useFakeTimers();
     const game = new GameEngine();
@@ -209,7 +275,36 @@ describe("GameEngine", () => {
     expect(rejoined.room.players[0].connected).toBe(true);
   });
 
-  it("lets the host restart a finished game with new settings", () => {
+  it("lets the host restart a finished game with new settings and makes the last winner the judge", () => {
+    const game = new GameEngine();
+    const { code } = game.createRoom({ pointsToWin: 1 });
+    const players = joinPlayers(game, code, 3);
+
+    game.startGame(code, players[0].playerId);
+    let state = game.getPublicRoom(code, players[1].playerId);
+    game.submitCards(code, players[1].playerId, [state.hand[0].id]);
+    state = game.getPublicRoom(code, players[2].playerId);
+    game.submitCards(code, players[2].playerId, [state.hand[0].id]);
+    const judgeState = game.getPublicRoom(code, players[0].playerId);
+    const winningSubmission = judgeState.round!.submissions[0];
+    game.chooseWinner(code, players[0].playerId, winningSubmission.id);
+    const gameOverState = game.getPublicRoom(code, players[0].playerId);
+    const lastWinnerId = gameOverState.round!.result!.winnerPlayerId;
+
+    expect(gameOverState.phase).toBe("game_over");
+
+    game.restartGame(code, players[0].playerId, { timerSeconds: 45, pointsToWin: 7 });
+
+    const restarted = game.getPublicRoom(code, players[0].playerId);
+    expect(restarted.phase).toBe("submitting");
+    expect(restarted.settings.timerSeconds).toBe(45);
+    expect(restarted.settings.pointsToWin).toBe(7);
+    expect(restarted.players.every((player) => player.score === 0)).toBe(true);
+    expect(restarted.round?.judgeId).toBe(lastWinnerId);
+  });
+
+  it("moves a restart without enough players back to the lobby instead of throwing", () => {
+    vi.useFakeTimers();
     const game = new GameEngine();
     const { code } = game.createRoom({ pointsToWin: 1 });
     const players = joinPlayers(game, code, 3);
@@ -221,31 +316,29 @@ describe("GameEngine", () => {
     game.submitCards(code, players[2].playerId, [state.hand[0].id]);
     const judgeState = game.getPublicRoom(code, players[0].playerId);
     game.chooseWinner(code, players[0].playerId, judgeState.round!.submissions[0].id);
+    game.disconnectPlayer(code, players[2].playerId);
 
-    expect(game.getPublicRoom(code, players[0].playerId).phase).toBe("game_over");
+    expect(() => game.restartGame(code, players[0].playerId)).not.toThrow();
 
-    game.restartGame(code, players[0].playerId, { timerSeconds: 45, pointsToWin: 7 });
-
-    const restarted = game.getPublicRoom(code, players[0].playerId);
-    expect(restarted.phase).toBe("submitting");
-    expect(restarted.settings.timerSeconds).toBe(45);
-    expect(restarted.settings.pointsToWin).toBe(7);
-    expect(restarted.players.every((player) => player.score === 0)).toBe(true);
+    const lobbyState = game.getPublicRoom(code, players[0].playerId);
+    expect(lobbyState.phase).toBe("lobby");
+    expect(lobbyState.round).toBeNull();
+    expect(lobbyState.players.every((player) => player.score === 0)).toBe(true);
   });
 
-  it("cleans up abandoned lobby rooms", () => {
+  it("closes abandoned lobby rooms after five minutes", () => {
     vi.useFakeTimers();
     const game = new GameEngine();
     const { code } = game.createRoom();
 
     expect(game.getRoomSummary(code).exists).toBe(true);
 
-    vi.advanceTimersByTime(30 * 60 * 1000);
+    vi.advanceTimersByTime(5 * 60 * 1000);
 
     expect(game.getRoomSummary(code).exists).toBe(false);
   });
 
-  it("cleans up finished rooms after the retention window", () => {
+  it("closes finished rooms after five minutes of inactivity", () => {
     vi.useFakeTimers();
     const game = new GameEngine();
     const { code } = game.createRoom({ pointsToWin: 1 });
@@ -262,7 +355,7 @@ describe("GameEngine", () => {
 
     expect(game.getRoomSummary(code).phase).toBe("game_over");
 
-    vi.advanceTimersByTime(30 * 60 * 1000);
+    vi.advanceTimersByTime(5 * 60 * 1000);
 
     expect(game.getRoomSummary(code).exists).toBe(false);
   });

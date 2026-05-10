@@ -41,7 +41,18 @@ export function buildApp(options: { game?: GameEngine; cardCatalog?: CardCatalog
     }
   };
 
-  const game = options.game ?? new GameEngine(emitRoom, options.cardCatalog);
+  const emitRoomClosed = async (roomCode: string, message: string) => {
+    const roomSockets = await io.in(roomCode).fetchSockets();
+
+    for (const roomSocket of roomSockets) {
+      roomSocket.emit("roomClosed", { roomCode, message });
+      roomSocket.leave(roomCode);
+      roomSocket.data.roomCode = undefined;
+      roomSocket.data.playerId = undefined;
+    }
+  };
+
+  const game = options.game ?? new GameEngine(emitRoom, options.cardCatalog, emitRoomClosed);
 
   app.get("/health", async () => ({ ok: true, name: "cards-against-jewels-server" }));
 
@@ -204,6 +215,16 @@ export function buildApp(options: { game?: GameEngine; cardCatalog?: CardCatalog
           }
         }
 
+        await emitRoom(roomCode);
+      } catch (error) {
+        sendGameError(error);
+      }
+    });
+
+    socket.on("playerActivity", async () => {
+      try {
+        const { roomCode, playerId } = requireSocketRoom();
+        game.recordPlayerActivity(roomCode, playerId);
         await emitRoom(roomCode);
       } catch (error) {
         sendGameError(error);
